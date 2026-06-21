@@ -1,22 +1,58 @@
 /* src/components/Topbar.jsx - Renders frosted page chrome with search and profile menu. */
 import { useState } from 'react'
-import { Bell, LogOut, Menu, Search } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Bell, LogOut, Menu, Search, X } from 'lucide-react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { useAuth } from '../context/AuthContext'
 import Avatar from './Avatar'
 
 export function Topbar({ onMenuClick, subtitle, title }) {
+  const location = useLocation()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { logout, user } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const querySearch = searchParams.get('search') || ''
   const fullName =
     [user?.first_name, user?.last_name].filter(Boolean).join(' ') ||
     'MediFlow User'
 
+  function getSearchTarget() {
+    if (location.pathname === '/appointments') {
+      return '/appointments'
+    }
+
+    return '/patients'
+  }
+
+  function handleSearchSubmit(event) {
+    event.preventDefault()
+    const formData = new FormData(event.currentTarget)
+    const trimmedSearch = String(formData.get('search') || '').trim()
+    const targetPath = getSearchTarget()
+
+    if (!trimmedSearch) {
+      navigate(targetPath)
+      return
+    }
+
+    navigate(`${targetPath}?search=${encodeURIComponent(trimmedSearch)}`)
+  }
+
+  function handleClearSearch() {
+    navigate(getSearchTarget())
+  }
+
+  function handleNotificationsToggle() {
+    setMenuOpen(false)
+    setNotificationsOpen((open) => !open)
+  }
+
   function handleLogout() {
     logout()
     setMenuOpen(false)
+    setNotificationsOpen(false)
     navigate('/login', { replace: true })
   }
 
@@ -42,31 +78,69 @@ export function Topbar({ onMenuClick, subtitle, title }) {
       </div>
 
       <div className="ml-4 flex shrink-0 items-center gap-3">
-        <label className="relative hidden sm:block">
+        <form className="relative hidden sm:block" onSubmit={handleSearchSubmit}>
           <span className="sr-only">Search</span>
           <Search
             aria-hidden="true"
             className="pointer-events-none absolute left-3 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-slate"
           />
           <input
-            className="h-[38px] w-[220px] rounded-control border border-hairline bg-canvas pl-9 pr-4 text-[14px] font-normal text-ink outline-none transition-all duration-300 placeholder:text-slate/60 focus:w-[280px] focus:border-brand focus:ring-2 focus:ring-brand/30"
-            placeholder="Search"
+            key={`${location.pathname}:${querySearch}`}
+            className="h-[38px] w-[220px] rounded-control border border-hairline bg-canvas pl-9 pr-9 text-[14px] font-normal text-ink outline-none transition-all duration-300 placeholder:text-slate/60 focus:w-[280px] focus:border-brand focus:ring-2 focus:ring-brand/30"
+            defaultValue={querySearch}
+            name="search"
+            placeholder="Search records"
             type="search"
           />
-        </label>
+          {querySearch ? (
+            <button
+              className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate transition hover:bg-mist hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
+              onClick={handleClearSearch}
+              type="button"
+            >
+              <span className="sr-only">Clear search</span>
+              <X aria-hidden="true" className="h-4 w-4" />
+            </button>
+          ) : null}
+        </form>
 
-        <button
-          aria-label="Notifications"
-          className="relative hidden h-10 w-10 items-center justify-center rounded-control text-slate transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 sm:inline-flex"
-          type="button"
-        >
-          <Bell aria-hidden="true" className="h-5 w-5" />
-        </button>
+        <div className="relative hidden sm:block">
+          <button
+            aria-expanded={notificationsOpen}
+            aria-label="Notifications"
+            className="relative h-10 w-10 items-center justify-center rounded-control text-slate transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 sm:inline-flex"
+            onClick={handleNotificationsToggle}
+            type="button"
+          >
+            <Bell aria-hidden="true" className="h-5 w-5" />
+            <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-status-cancelled-text" />
+          </button>
+
+          {notificationsOpen ? (
+            <div className="absolute right-0 top-full mt-2 w-[260px] overflow-hidden rounded-xl border border-hairline bg-canvas shadow-card animate-scale-in">
+              <div className="border-b border-hairline px-4 py-3">
+                <p className="text-sm font-semibold text-ink">Notifications</p>
+                <p className="mt-0.5 text-xs font-medium text-slate">
+                  Frontend demo alerts
+                </p>
+              </div>
+              <div className="px-4 py-4">
+                <p className="text-sm font-medium text-ink">No new alerts</p>
+                <p className="mt-1 text-xs font-normal leading-5 text-slate">
+                  Appointment and patient updates will appear here later.
+                </p>
+              </div>
+            </div>
+          ) : null}
+        </div>
 
         <div className="relative">
           <button
             className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2"
-            onClick={() => setMenuOpen((open) => !open)}
+            onClick={() => {
+              setNotificationsOpen(false)
+              setMenuOpen((open) => !open)
+            }}
             type="button"
           >
             <span className="sr-only">Open user menu</span>

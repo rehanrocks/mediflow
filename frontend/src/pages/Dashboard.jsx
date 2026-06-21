@@ -22,6 +22,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { Link } from 'react-router-dom'
 
 import SkeletonRow from '../components/SkeletonRow'
 import StatusBadge from '../components/StatusBadge'
@@ -215,13 +216,20 @@ function ChartTooltip({ active, label, payload }) {
   )
 }
 
-function Panel({ action, children, title }) {
+function Panel({ action, actionTo, children, title }) {
   return (
     <section className="overflow-hidden rounded-card border border-hairline bg-canvas shadow-card">
       <div className="flex h-12 items-center justify-between border-b border-hairline px-5">
         <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
-        {action ? (
-          <span className="text-[12px] font-semibold text-brand">{action}</span>
+        {action && actionTo ? (
+          <Link
+            className="rounded-md px-2 py-1 text-[12px] font-semibold text-brand transition hover:bg-brand-light hover:text-brand-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
+            to={actionTo}
+          >
+            {action}
+          </Link>
+        ) : action ? (
+          <span className="text-[12px] font-semibold text-slate">{action}</span>
         ) : null}
       </div>
       <div className="p-5">{children}</div>
@@ -570,7 +578,7 @@ export function Dashboard() {
 
       <section className="grid gap-5 xl:grid-cols-3">
         {appointmentsEnabled ? (
-          <Panel action="Schedule" title="Upcoming Appointments">
+          <Panel action="Schedule" actionTo="/appointments" title="Upcoming Appointments">
             <div className="space-y-4">
               {upcomingAppointments.length > 0 ? (
                 upcomingAppointments.map((appointment, index) => (
@@ -607,7 +615,7 @@ export function Dashboard() {
         ) : null}
 
         {patientsEnabled ? (
-          <Panel action="View all" title="Recent Patients">
+          <Panel action="View all" actionTo="/patients" title="Recent Patients">
             <div className="space-y-4">
               {recentPatients.map((patient, index) => (
                 <div

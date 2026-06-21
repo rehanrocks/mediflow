@@ -6,6 +6,7 @@ import Appointments from './pages/Appointments.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Login from './pages/Login.jsx'
 import NotAvailable from './pages/NotAvailable.jsx'
+import NotFound from './pages/NotFound.jsx'
 import Patients from './pages/Patients.jsx'
 
 export function App() {
@@ -16,10 +17,12 @@ export function App() {
         <Route path="/not-available" element={<NotAvailable />} />
 
         <Route element={<PortalLayout />}>
-          <Route index element={<Dashboard />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/appointments" element={<Appointments />} />
           <Route path="/patients" element={<Patients />} />
         </Route>
+
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
   )

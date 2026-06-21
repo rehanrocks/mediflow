@@ -8,9 +8,11 @@ import {
   Search,
   Trash2,
   UserPlus,
+  X,
   XCircle,
 } from 'lucide-react'
 import { useForm } from 'react-hook-form'
+import { useSearchParams } from 'react-router-dom'
 
 import Avatar from '../components/Avatar'
 import Drawer from '../components/Drawer'
@@ -108,8 +110,8 @@ export function Patients() {
   const { user } = useAuth()
   const toast = useToast()
   const canManagePatients = user?.role !== 'doctor'
+  const [searchParams, setSearchParams] = useSearchParams()
   const [patients, setPatients] = useState([])
-  const [search, setSearch] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSearching, setIsSearching] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -121,6 +123,7 @@ export function Patients() {
   const [formError, setFormError] = useState('')
   const [newPatientId, setNewPatientId] = useState(null)
   const hasLoadedRef = useRef(false)
+  const search = searchParams.get('search') || ''
   const {
     formState: { errors, isSubmitting },
     handleSubmit,
@@ -249,6 +252,19 @@ export function Patients() {
     setFormError('')
   }
 
+  function handleSearchChange(event) {
+    const nextSearch = event.target.value
+    const trimmedSearch = nextSearch.trim()
+
+    setSearchParams(trimmedSearch ? { search: trimmedSearch } : {}, {
+      replace: true,
+    })
+  }
+
+  function clearSearch() {
+    setSearchParams({}, { replace: true })
+  }
+
   async function handleSavePatient(formValues) {
     setFormError('')
 
@@ -367,13 +383,22 @@ export function Patients() {
           />
           <input
             className="h-11 w-full rounded-control border border-hairline bg-canvas pl-9 pr-10 text-[14px] font-normal text-ink outline-none transition-all duration-300 placeholder:text-slate/60 focus:border-brand focus:ring-2 focus:ring-brand/30"
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={handleSearchChange}
             placeholder="Search by name or phone"
             type="search"
             value={search}
           />
           {isSearching ? (
             <span className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-brand/20 border-t-brand animate-spin" />
+          ) : search ? (
+            <button
+              className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate transition hover:bg-mist hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
+              onClick={clearSearch}
+              type="button"
+            >
+              <span className="sr-only">Clear patient search</span>
+              <X aria-hidden="true" className="h-4 w-4" />
+            </button>
           ) : null}
         </label>
         {canManagePatients ? (
@@ -439,6 +464,15 @@ export function Patients() {
                       <p className="mt-1 text-[14px] font-normal text-slate">
                         Try a different search or add the first patient.
                       </p>
+                      {search.trim() ? (
+                        <button
+                          className="mt-4 text-sm font-semibold text-brand transition hover:text-brand-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2"
+                          onClick={clearSearch}
+                          type="button"
+                        >
+                          Clear search
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                 ) : (

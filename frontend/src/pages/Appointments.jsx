@@ -1,7 +1,8 @@
 /* src/pages/Appointments.jsx - Manages booking, filtering, and appointment status updates. */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CalendarClock, Plus, Search, XCircle } from 'lucide-react'
+import { AlertCircle, CalendarClock, Plus, Search, X, XCircle } from 'lucide-react'
 import { useForm } from 'react-hook-form'
+import { useSearchParams } from 'react-router-dom'
 
 import Avatar from '../components/Avatar'
 import Drawer from '../components/Drawer'
@@ -228,17 +229,19 @@ export function Appointments() {
   const { user } = useAuth()
   const toast = useToast()
   const canManageAppointments = user?.role !== 'doctor'
+  const [searchParams, setSearchParams] = useSearchParams()
   const [appointments, setAppointments] = useState([])
   const [patients, setPatients] = useState([])
   const [doctors, setDoctors] = useState([])
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
   const [isLoading, setIsLoading] = useState(true)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [formError, setFormError] = useState('')
   const [flashingRow, setFlashingRow] = useState(null)
   const [successPulse, setSuccessPulse] = useState(false)
+  const search = searchParams.get('search') || ''
+  const queryStatus = searchParams.get('status')
+  const statusFilter = STATUS_OPTIONS.includes(queryStatus) ? queryStatus : 'all'
   const {
     formState: { errors, isSubmitting },
     handleSubmit,
@@ -411,6 +414,34 @@ export function Appointments() {
     }
   }
 
+  function updateFilters(nextSearch = search, nextStatus = statusFilter) {
+    const nextParams = {}
+    const trimmedSearch = nextSearch.trim()
+
+    if (trimmedSearch) {
+      nextParams.search = trimmedSearch
+    }
+
+    if (nextStatus !== 'all') {
+      nextParams.status = nextStatus
+    }
+
+    setSearchParams(nextParams, { replace: true })
+  }
+
+  function handleSearchChange(event) {
+    const nextSearch = event.target.value
+    updateFilters(nextSearch, statusFilter)
+  }
+
+  function handleStatusFilterChange(nextStatus) {
+    updateFilters(search, nextStatus)
+  }
+
+  function clearFilters() {
+    setSearchParams({}, { replace: true })
+  }
+
   const formInputClass =
     'w-full rounded-control border border-hairline bg-mist/50 px-4 py-2.5 text-[14px] font-normal text-ink outline-none transition-all duration-150 placeholder:text-slate/50 focus:border-brand focus:bg-canvas focus:ring-2 focus:ring-brand/25'
 
@@ -425,12 +456,24 @@ export function Appointments() {
               className="pointer-events-none absolute left-3 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-slate"
             />
             <input
-              className="h-[38px] w-full rounded-control border border-hairline bg-canvas pl-9 pr-4 text-[14px] font-normal text-ink outline-none transition-all duration-300 placeholder:text-slate/60 focus:border-brand focus:ring-2 focus:ring-brand/30 md:w-[240px]"
-              onChange={(event) => setSearch(event.target.value)}
+              className="h-[38px] w-full rounded-control border border-hairline bg-canvas pl-9 pr-9 text-[14px] font-normal text-ink outline-none transition-all duration-300 placeholder:text-slate/60 focus:border-brand focus:ring-2 focus:ring-brand/30 md:w-[260px]"
+              onChange={handleSearchChange}
               placeholder="Search patient, doctor, status"
               type="search"
               value={search}
             />
+            {search ? (
+              <button
+                className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate transition hover:bg-mist hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
+                onClick={() => {
+                  updateFilters('', statusFilter)
+                }}
+                type="button"
+              >
+                <span className="sr-only">Clear appointment search</span>
+                <X aria-hidden="true" className="h-4 w-4" />
+              </button>
+            ) : null}
           </label>
 
           <div className="flex gap-2 overflow-x-auto">
@@ -446,7 +489,7 @@ export function Appointments() {
                       : 'border-hairline bg-mist text-slate hover:text-ink',
                   ].join(' ')}
                   key={status}
-                  onClick={() => setStatusFilter(status)}
+                  onClick={() => handleStatusFilterChange(status)}
                   style={stagger(index, 0.05)}
                   type="button"
                 >
@@ -546,10 +589,7 @@ export function Appointments() {
                       {search.trim() || statusFilter !== 'all' ? (
                         <button
                           className="mt-4 text-sm font-semibold text-brand transition hover:text-brand-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2"
-                          onClick={() => {
-                            setSearch('')
-                            setStatusFilter('all')
-                          }}
+                          onClick={clearFilters}
                           type="button"
                         >
                           Clear filters
