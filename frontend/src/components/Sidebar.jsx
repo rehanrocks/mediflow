@@ -1,5 +1,5 @@
 /* src/components/Sidebar.jsx - Renders the blue portal navigation. */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CalendarClock,
   LayoutDashboard,
@@ -47,13 +47,21 @@ function LogoMark() {
 export function Sidebar({ mobile = false, onNavigate }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const { logout, user } = useAuth()
+  const { hasFeature, logout, user } = useAuth()
   const itemRefs = useRef({})
   const [activeStyle, setActiveStyle] = useState({ opacity: 0, transform: '' })
   const fullName =
     [user?.first_name, user?.last_name].filter(Boolean).join(' ') ||
     'MediFlow User'
-  const visibleNavItems = NAV_ITEMS
+  const visibleNavItems = useMemo(
+    () =>
+      !user
+        ? NAV_ITEMS
+        : NAV_ITEMS.filter(
+            (item) => !item.featureKey || hasFeature(item.featureKey),
+          ),
+    [hasFeature, user],
+  )
 
   useEffect(() => {
     const activeItem = visibleNavItems.find((item) =>
@@ -62,15 +70,27 @@ export function Sidebar({ mobile = false, onNavigate }) {
     const activeElement = activeItem ? itemRefs.current[activeItem.path] : null
 
     if (!activeElement) {
-      setActiveStyle({ opacity: 0, transform: '' })
+      setActiveStyle((currentStyle) =>
+        currentStyle.opacity === 0 && currentStyle.transform === ''
+          ? currentStyle
+          : { opacity: 0, transform: '' },
+      )
       return
     }
 
-    setActiveStyle({
+    const nextStyle = {
       height: `${activeElement.offsetHeight}px`,
       opacity: 1,
       transform: `translateY(${activeElement.offsetTop}px)`,
-    })
+    }
+
+    setActiveStyle((currentStyle) =>
+      currentStyle.height === nextStyle.height &&
+      currentStyle.opacity === nextStyle.opacity &&
+      currentStyle.transform === nextStyle.transform
+        ? currentStyle
+        : nextStyle,
+    )
   }, [location.pathname, visibleNavItems])
 
   function handleLogout() {

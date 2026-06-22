@@ -3,11 +3,16 @@ import axios from 'axios'
 import {
   bookDemoAppointment,
   createDemoPatient,
+  deleteDemoAppointment,
+  deleteDemoPatient,
+  getDemoAppointment,
   getDemoAppointments,
   getDemoDoctors,
+  getDemoPatient,
   getDemoPatients,
+  updateDemoAppointment,
   updateDemoPatient,
-  deleteDemoPatient,
+  updateDemoPayment,
   updateDemoStatus,
 } from '../lib/seedData'
 
@@ -70,6 +75,14 @@ async function withDemoFallback(request, fallback) {
   }
 }
 
+function normalizeParams(params = '') {
+  if (typeof params === 'string') {
+    return params.trim() ? { search: params.trim() } : {}
+  }
+
+  return params || {}
+}
+
 api.interceptors.request.use((config) => {
   const access = getAccessToken()
 
@@ -104,15 +117,27 @@ export async function refreshToken(refresh) {
   return data
 }
 
-export async function getPatients(search = '') {
+export async function getPatients(params = '') {
+  const normalizedParams = normalizeParams(params)
+
   return withDemoFallback(
     async () => {
       const { data } = await api.get('/patients/', {
-        params: search ? { search } : {},
+        params: normalizedParams,
       })
       return data
     },
-    () => getDemoPatients(search),
+    () => getDemoPatients(normalizedParams),
+  )
+}
+
+export async function getPatient(id) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.get(`/patients/${id}/`)
+      return data
+    },
+    () => getDemoPatient(id),
   )
 }
 
@@ -127,11 +152,23 @@ export async function createPatient(patient) {
 }
 
 export async function updatePatient(id, patient) {
-  return updateDemoPatient(id, patient)
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.patch(`/patients/${id}/`, patient)
+      return data
+    },
+    () => updateDemoPatient(id, patient),
+  )
 }
 
 export async function deletePatient(id) {
-  return deleteDemoPatient(id)
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.delete(`/patients/${id}/`)
+      return data
+    },
+    () => deleteDemoPatient(id),
+  )
 }
 
 export async function getDoctors() {
@@ -144,13 +181,27 @@ export async function getDoctors() {
   )
 }
 
-export async function getAppointments() {
+export async function getAppointments(params = {}) {
+  const normalizedParams = normalizeParams(params)
+
   return withDemoFallback(
     async () => {
-      const { data } = await api.get('/appointments/')
+      const { data } = await api.get('/appointments/', {
+        params: normalizedParams,
+      })
       return data
     },
-    getDemoAppointments,
+    () => getDemoAppointments(normalizedParams),
+  )
+}
+
+export async function getAppointment(id) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.get(`/appointments/${id}/`)
+      return data
+    },
+    () => getDemoAppointment(id),
   )
 }
 
@@ -164,6 +215,26 @@ export async function bookAppointment(appointment) {
   )
 }
 
+export async function updateAppointment(id, appointment) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.patch(`/appointments/${id}/`, appointment)
+      return data
+    },
+    () => updateDemoAppointment(id, appointment),
+  )
+}
+
+export async function deleteAppointment(id) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.delete(`/appointments/${id}/`)
+      return data
+    },
+    () => deleteDemoAppointment(id),
+  )
+}
+
 export async function updateStatus(id, status) {
   return withDemoFallback(
     async () => {
@@ -173,5 +244,17 @@ export async function updateStatus(id, status) {
       return data
     },
     () => updateDemoStatus(id, status),
+  )
+}
+
+export async function updatePaymentStatus(id, paymentStatus) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.patch(`/appointments/${id}/`, {
+        payment_status: paymentStatus,
+      })
+      return data
+    },
+    () => updateDemoPayment(id, paymentStatus),
   )
 }

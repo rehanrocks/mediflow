@@ -2,7 +2,7 @@
 const BASE =
   'animate-shimmer bg-gradient-to-r from-hairline via-canvas to-hairline bg-[length:200%_100%]'
 
-export function SkeletonRow({ index = 0, variant = 'row' }) {
+export function SkeletonRow({ columns = 5, index = 0, variant = 'row' }) {
   const style = { animationDelay: `${index * 0.15}s` }
 
   if (variant === 'stat') {
@@ -27,7 +27,7 @@ export function SkeletonRow({ index = 0, variant = 'row' }) {
 
   return (
     <tr style={style}>
-      {Array.from({ length: 5 }).map((_, columnIndex) => (
+      {Array.from({ length: columns }).map((_, columnIndex) => (
         <td className="px-5 py-4" key={columnIndex}>
           <div className={`${BASE} h-4 rounded-full`} />
         </td>

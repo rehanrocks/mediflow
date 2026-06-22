@@ -32,6 +32,7 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (username, password) => {
     const response = await loginRequest({ username, password })
     const authenticatedUser = {
+      id: response.id,
       role: response.role,
       first_name: response.first_name,
       last_name: response.last_name,

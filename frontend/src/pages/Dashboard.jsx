@@ -29,6 +29,7 @@ import StatusBadge from '../components/StatusBadge'
 import { useAuth } from '../context/AuthContext'
 import { useCountUp } from '../lib/countUp'
 import { stagger } from '../lib/motion'
+import { getPatientAge, getPatientConditions } from '../lib/records'
 import { getAppointments, getPatients } from '../services/api'
 
 function normalizeList(response) {
@@ -628,11 +629,13 @@ export function Dashboard() {
                       {getPersonName(patient, 'Unnamed patient')}
                     </p>
                     <p className="mt-1 truncate text-[12px] font-medium text-slate">
-                      {patient.condition || 'No condition recorded'}
+                      {getPatientConditions(patient)[0] || 'No condition recorded'}
                     </p>
                   </div>
                   <p className="font-mono text-[12px] font-medium text-slate">
-                    {patient.age ?? '-'} yrs
+                    {Number.isFinite(getPatientAge(patient))
+                      ? `${getPatientAge(patient)} yrs`
+                      : '-'}
                   </p>
                 </div>
               ))}

@@ -1,87 +1,91 @@
-/* src/pages/Appointments.jsx - Manages booking, filtering, and appointment status updates. */
+/* src/pages/Appointments.jsx - Appointment list with RBAC actions. */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertCircle, CalendarClock, Plus, Search, X, XCircle } from 'lucide-react'
-import { useForm } from 'react-hook-form'
-import { useSearchParams } from 'react-router-dom'
+import {
+  CalendarClock,
+  Eye,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import Avatar from '../components/Avatar'
-import Drawer from '../components/Drawer'
+import ConfirmationModal from '../components/ConfirmationModal'
+import PaymentBadge, { PaymentToggle } from '../components/PaymentBadge'
 import SkeletonRow from '../components/SkeletonRow'
 import StatusBadge from '../components/StatusBadge'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../context/AuthContext'
+import {
+  APPOINTMENT_STATUS_OPTIONS,
+  canTransitionAppointmentStatus,
+  getAllowedAppointmentStatuses,
+  getStatusTransitionMessage,
+  isTerminalAppointmentStatus,
+  normalizeAppointmentStatus,
+} from '../lib/appointmentStatus'
 import { stagger } from '../lib/motion'
 import {
-  bookAppointment,
+  formatDateParts,
+  getAppointmentDoctorId,
+  getAppointmentDoctorName,
+  getAppointmentPatientName,
+  getBackendError,
+  getPatientConditions,
+  getRecordId,
+  getVitalsText,
+  normalizeList,
+  resolvePatient,
+} from '../lib/records'
+import {
+  deleteAppointment,
   getAppointments,
   getDoctors,
   getPatients,
+  updatePaymentStatus,
   updateStatus,
 } from '../services/api'
 
-const STATUS_OPTIONS = ['scheduled', 'in_progress', 'completed', 'cancelled']
-const STATUS_FILTERS = ['all', ...STATUS_OPTIONS]
-
-function normalizeList(response) {
-  if (Array.isArray(response)) {
-    return response
-  }
-
-  if (Array.isArray(response?.results)) {
-    return response.results
-  }
-
-  return []
-}
-
-function getRecordId(record) {
-  return record?.id ?? record?.pk ?? record?.uuid
-}
-
-function getPersonName(person, fallback = 'Unknown') {
-  if (!person) {
-    return fallback
-  }
-
-  if (typeof person === 'string' || typeof person === 'number') {
-    return String(person)
-  }
-
-  return (
-    person.full_name ||
-    [person.first_name, person.last_name].filter(Boolean).join(' ') ||
-    person.name ||
-    person.username ||
-    person.email ||
-    fallback
-  )
-}
-
-function getBackendError(error, fallback) {
-  const data = error?.response?.data
-
-  if (typeof error?.detail === 'string') {
-    return error.detail
-  }
-
-  if (typeof data?.detail === 'string') {
-    return data.detail
-  }
-
-  if (typeof data === 'string') {
-    return data
-  }
-
-  if (data && typeof data === 'object') {
-    return Object.entries(data)
-      .map(([field, messages]) => {
-        const message = Array.isArray(messages) ? messages.join(' ') : messages
-        return `${field}: ${message}`
-      })
-      .join(' ')
-  }
-
-  return fallback
+const STATUS_OPTIONS = APPOINTMENT_STATUS_OPTIONS
+const STATUS_TONES = {
+  all: {
+    active: 'border-brand/30 bg-brand-light font-semibold text-brand',
+    inactive: 'border-hairline bg-mist text-slate hover:border-brand/30 hover:text-brand',
+  },
+  scheduled: {
+    active:
+      'border-status-scheduled-text/30 bg-status-scheduled-bg font-semibold text-status-scheduled-text',
+    inactive:
+      'border-status-scheduled-text/20 bg-status-scheduled-bg/45 text-status-scheduled-text hover:bg-status-scheduled-bg',
+    select:
+      'border-status-scheduled-text/30 bg-status-scheduled-bg text-status-scheduled-text',
+  },
+  in_progress: {
+    active:
+      'border-status-inProgress-text/30 bg-status-inProgress-bg font-semibold text-status-inProgress-text',
+    inactive:
+      'border-status-inProgress-text/20 bg-status-inProgress-bg/45 text-status-inProgress-text hover:bg-status-inProgress-bg',
+    select:
+      'border-status-inProgress-text/30 bg-status-inProgress-bg text-status-inProgress-text',
+  },
+  completed: {
+    active:
+      'border-status-completed-text/30 bg-status-completed-bg font-semibold text-status-completed-text',
+    inactive:
+      'border-status-completed-text/20 bg-status-completed-bg/45 text-status-completed-text hover:bg-status-completed-bg',
+    select:
+      'border-status-completed-text/30 bg-status-completed-bg text-status-completed-text',
+  },
+  cancelled: {
+    active:
+      'border-status-cancelled-text/30 bg-status-cancelled-bg font-semibold text-status-cancelled-text',
+    inactive:
+      'border-status-cancelled-text/20 bg-status-cancelled-bg/45 text-status-cancelled-text hover:bg-status-cancelled-bg',
+    select:
+      'border-status-cancelled-text/30 bg-status-cancelled-bg text-status-cancelled-text',
+  },
 }
 
 function formatStatus(status) {
@@ -99,92 +103,26 @@ function normalizeSearchText(value) {
     .trim()
 }
 
-function formatDateParts(value) {
-  if (!value) {
-    return { date: '-', time: '' }
-  }
-
-  const date = new Date(value)
-
-  if (Number.isNaN(date.getTime())) {
-    return { date: '-', time: '' }
-  }
-
-  return {
-    date: new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    }).format(date),
-    time: new Intl.DateTimeFormat('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-    }).format(date),
-  }
-}
-
-function getPatientRecord(appointment, patients) {
-  if (typeof appointment.patient === 'object') {
-    return appointment.patient
-  }
-
-  return patients.find(
-    (candidate) => String(getRecordId(candidate)) === String(appointment.patient),
-  )
-}
-
-function getPatientDisplay(appointment, patients) {
-  if (appointment.patient_name) {
-    return appointment.patient_name
-  }
-
-  const patient = getPatientRecord(appointment, patients)
-
-  return getPersonName(patient, 'Unknown patient')
-}
-
 function getPatientCondition(appointment, patients) {
-  const patient = getPatientRecord(appointment, patients)
+  const patient = resolvePatient(appointment, patients)
+  const conditions = getPatientConditions(patient)
 
-  return patient?.condition || 'No condition recorded'
-}
-
-function getDoctorRecord(appointment, doctors) {
-  if (typeof appointment.doctor === 'object') {
-    return appointment.doctor
-  }
-
-  return doctors.find(
-    (candidate) => String(getRecordId(candidate)) === String(appointment.doctor),
-  )
-}
-
-function getDoctorDisplay(appointment, doctors) {
-  if (appointment.doctor_name) {
-    return appointment.doctor_name
-  }
-
-  const doctor = getDoctorRecord(appointment, doctors)
-
-  return getPersonName(doctor, 'Unknown doctor')
+  return conditions[0] || 'No condition recorded'
 }
 
 function getSearchableAppointmentText(appointment, patients, doctors) {
   const status = String(appointment.status || 'scheduled')
-  const patient = getPatientRecord(appointment, patients)
-  const doctor = getDoctorRecord(appointment, doctors)
   const dateParts = formatDateParts(appointment.appointment_dt)
 
   return [
-    getPatientDisplay(appointment, patients),
-    patient?.phone,
-    patient?.condition,
-    appointment.patient,
-    getDoctorDisplay(appointment, doctors),
-    doctor?.email,
-    doctor?.username,
-    appointment.doctor,
+    getAppointmentPatientName(appointment, patients),
+    resolvePatient(appointment, patients)?.phone,
+    getPatientCondition(appointment, patients),
+    getAppointmentDoctorName(appointment, doctors),
     appointment.reason,
+    appointment.temperature,
+    appointment.blood_pressure,
+    appointment.payment_status,
     status,
     formatStatus(status),
     dateParts.date,
@@ -192,75 +130,29 @@ function getSearchableAppointmentText(appointment, patients, doctors) {
   ]
     .filter(Boolean)
     .join(' ')
-    .concat(' ', dateParts.date.replace(/,/g, ''))
     .concat(' ', status.replace(/_/g, ' '))
-}
-
-function FieldError({ children }) {
-  if (!children) {
-    return null
-  }
-
-  return (
-    <p className="mt-1.5 flex items-center gap-1 text-[12px] font-normal text-rose-500">
-      <AlertCircle aria-hidden="true" className="h-[13px] w-[13px]" />
-      {children}
-    </p>
-  )
-}
-
-function DrawerField({ children, label, optional }) {
-  return (
-    <label className="block animate-fade-up">
-      <span className="mb-1.5 block text-[13px] font-semibold text-ink">
-        {label}
-        {optional ? (
-          <span className="ml-1 text-[12px] font-normal text-slate">
-            (optional)
-          </span>
-        ) : null}
-      </span>
-      {children}
-    </label>
-  )
 }
 
 export function Appointments() {
   const { user } = useAuth()
   const toast = useToast()
-  const canManageAppointments = user?.role !== 'doctor'
+  const navigate = useNavigate()
+  const canManageAppointments =
+    !user || ['admin', 'receptionist'].includes(user.role)
+  const canDeleteAppointments = !user || user.role === 'admin'
   const [searchParams, setSearchParams] = useSearchParams()
   const [appointments, setAppointments] = useState([])
   const [patients, setPatients] = useState([])
   const [doctors, setDoctors] = useState([])
   const [isLoading, setIsLoading] = useState(true)
-  const [drawerOpen, setDrawerOpen] = useState(false)
   const [loadError, setLoadError] = useState('')
-  const [formError, setFormError] = useState('')
   const [flashingRow, setFlashingRow] = useState(null)
-  const [successPulse, setSuccessPulse] = useState(false)
+  const [updatingPaymentId, setUpdatingPaymentId] = useState(null)
+  const [deleteCandidate, setDeleteCandidate] = useState(null)
+  const [isDeletingAppointment, setIsDeletingAppointment] = useState(false)
   const search = searchParams.get('search') || ''
   const queryStatus = searchParams.get('status')
   const statusFilter = STATUS_OPTIONS.includes(queryStatus) ? queryStatus : 'all'
-  const {
-    formState: { errors, isSubmitting },
-    handleSubmit,
-    register,
-    reset,
-  } = useForm({
-    defaultValues: {
-      patient: '',
-      doctor: '',
-      appointment_dt: '',
-      reason: '',
-      notes: '',
-    },
-  })
-
-  const loadAppointments = useCallback(async () => {
-    const response = await getAppointments()
-    setAppointments(normalizeList(response))
-  }, [])
 
   const loadPageData = useCallback(async (isMounted = () => true) => {
     setIsLoading(true)
@@ -308,32 +200,18 @@ export function Appointments() {
     }
   }, [loadPageData])
 
-  const patientOptions = useMemo(
-    () =>
-      patients
-        .map((patient) => ({
-          id: getRecordId(patient),
-          label: getPersonName(patient, 'Unnamed patient'),
-        }))
-        .filter((patient) => patient.id !== undefined && patient.id !== null),
-    [patients],
-  )
-
-  const doctorOptions = useMemo(
-    () =>
-      doctors
-        .map((doctor) => ({
-          id: getRecordId(doctor),
-          label: getPersonName(doctor, 'Unnamed doctor'),
-        }))
-        .filter((doctor) => doctor.id !== undefined && doctor.id !== null),
-    [doctors],
-  )
-
   const filteredAppointments = useMemo(() => {
     const searchTerms = normalizeSearchText(search).split(' ').filter(Boolean)
 
     return appointments.filter((appointment) => {
+      if (
+        user?.role === 'doctor' &&
+        user?.id &&
+        String(getAppointmentDoctorId(appointment)) !== String(user.id)
+      ) {
+        return false
+      }
+
       const status = String(appointment.status || 'scheduled').toLowerCase()
       const searchableText = normalizeSearchText(
         getSearchableAppointmentText(appointment, patients, doctors),
@@ -345,7 +223,7 @@ export function Appointments() {
 
       return matchesSearch && matchesStatus
     })
-  }, [appointments, doctors, patients, search, statusFilter])
+  }, [appointments, doctors, patients, search, statusFilter, user])
 
   const statusCounts = useMemo(
     () =>
@@ -367,53 +245,6 @@ export function Appointments() {
     [appointments],
   )
 
-  async function handleBookAppointment(formValues) {
-    setFormError('')
-
-    try {
-      await bookAppointment({
-        patient: formValues.patient,
-        doctor: formValues.doctor,
-        appointment_dt: formValues.appointment_dt,
-        reason: formValues.reason,
-      })
-      setSuccessPulse(true)
-      toast.success('Appointment booked successfully.')
-      await loadAppointments()
-      window.setTimeout(() => {
-        setSuccessPulse(false)
-        reset()
-        setDrawerOpen(false)
-      }, 300)
-    } catch (error) {
-      const message = getBackendError(error, 'Appointment could not be booked.')
-      setFormError(message)
-      toast.error(message)
-    }
-  }
-
-  async function handleStatusChange(appointmentId, nextStatus) {
-    const previousAppointments = appointments
-    setFlashingRow(appointmentId)
-    setAppointments((currentAppointments) =>
-      currentAppointments.map((appointment) =>
-        getRecordId(appointment) === appointmentId
-          ? { ...appointment, status: nextStatus }
-          : appointment,
-      ),
-    )
-    window.setTimeout(() => setFlashingRow(null), 400)
-
-    try {
-      await updateStatus(appointmentId, nextStatus)
-      toast.success('Appointment status updated.')
-    } catch (error) {
-      setAppointments(previousAppointments)
-      const message = getBackendError(error, 'Status could not be updated.')
-      toast.error(message)
-    }
-  }
-
   function updateFilters(nextSearch = search, nextStatus = statusFilter) {
     const nextParams = {}
     const trimmedSearch = nextSearch.trim()
@@ -429,45 +260,124 @@ export function Appointments() {
     setSearchParams(nextParams, { replace: true })
   }
 
-  function handleSearchChange(event) {
-    const nextSearch = event.target.value
-    updateFilters(nextSearch, statusFilter)
+  async function handleStatusChange(appointmentId, nextStatus) {
+    const currentAppointment = appointments.find(
+      (appointment) => String(getRecordId(appointment)) === String(appointmentId),
+    )
+    const currentStatus = normalizeAppointmentStatus(currentAppointment?.status)
+
+    if (!canTransitionAppointmentStatus(currentStatus, nextStatus)) {
+      toast.info(getStatusTransitionMessage(currentStatus, nextStatus))
+      return
+    }
+
+    if (currentStatus === normalizeAppointmentStatus(nextStatus)) {
+      return
+    }
+
+    const previousAppointments = appointments
+    setFlashingRow(appointmentId)
+    setAppointments((currentAppointments) =>
+      currentAppointments.map((appointment) =>
+        String(getRecordId(appointment)) === String(appointmentId)
+          ? { ...appointment, status: nextStatus }
+          : appointment,
+      ),
+    )
+    window.setTimeout(() => setFlashingRow(null), 400)
+
+    try {
+      await updateStatus(appointmentId, nextStatus)
+      toast.success('Appointment status updated.')
+    } catch (error) {
+      setAppointments(previousAppointments)
+      toast.error(getBackendError(error, 'Status could not be updated.'))
+    }
   }
 
-  function handleStatusFilterChange(nextStatus) {
-    updateFilters(search, nextStatus)
+  async function handlePaymentChange(appointmentId, nextPaymentStatus) {
+    const currentAppointment = appointments.find(
+      (appointment) => String(getRecordId(appointment)) === String(appointmentId),
+    )
+
+    if (
+      currentAppointment?.payment_status === 'paid' &&
+      nextPaymentStatus === 'unpaid'
+    ) {
+      toast.info('Paid appointments cannot be reverted to unpaid.')
+      return
+    }
+
+    const previousAppointments = appointments
+    setUpdatingPaymentId(appointmentId)
+    setAppointments((currentAppointments) =>
+      currentAppointments.map((appointment) =>
+        String(getRecordId(appointment)) === String(appointmentId)
+          ? { ...appointment, payment_status: nextPaymentStatus }
+          : appointment,
+      ),
+    )
+
+    try {
+      await updatePaymentStatus(appointmentId, nextPaymentStatus)
+      toast.success('Payment status updated.')
+    } catch (error) {
+      setAppointments(previousAppointments)
+      toast.error(getBackendError(error, 'Payment status could not be updated.'))
+    } finally {
+      setUpdatingPaymentId(null)
+    }
+  }
+
+  async function handleDeleteAppointment() {
+    if (!deleteCandidate) {
+      return
+    }
+
+    setIsDeletingAppointment(true)
+
+    try {
+      await deleteAppointment(deleteCandidate.id)
+      setAppointments((currentAppointments) =>
+        currentAppointments.filter(
+          (appointment) =>
+            String(getRecordId(appointment)) !== String(deleteCandidate.id),
+        ),
+      )
+      toast.success('Appointment deleted.')
+      setDeleteCandidate(null)
+    } catch (error) {
+      toast.error(getBackendError(error, 'Appointment could not be deleted.'))
+    } finally {
+      setIsDeletingAppointment(false)
+    }
   }
 
   function clearFilters() {
     setSearchParams({}, { replace: true })
   }
 
-  const formInputClass =
-    'w-full rounded-control border border-hairline bg-mist/50 px-4 py-2.5 text-[14px] font-normal text-ink outline-none transition-all duration-150 placeholder:text-slate/50 focus:border-brand focus:bg-canvas focus:ring-2 focus:ring-brand/25'
-
   return (
     <div className="space-y-5">
-      <section className="flex flex-col gap-3 rounded-card bg-canvas px-4 py-3 shadow-card xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center">
-          <label className="relative block">
+      <section className="rounded-card bg-canvas p-5 shadow-card">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <label className="relative block min-w-0">
             <span className="sr-only">Search appointments</span>
             <Search
               aria-hidden="true"
               className="pointer-events-none absolute left-3 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-slate"
             />
             <input
-              className="h-[38px] w-full rounded-control border border-hairline bg-canvas pl-9 pr-9 text-[14px] font-normal text-ink outline-none transition-all duration-300 placeholder:text-slate/60 focus:border-brand focus:ring-2 focus:ring-brand/30 md:w-[260px]"
-              onChange={handleSearchChange}
+              className="h-11 w-full rounded-control border border-hairline bg-canvas pl-9 pr-9 text-[14px] font-normal text-ink outline-none transition-all duration-300 placeholder:text-slate/60 focus:border-brand focus:ring-2 focus:ring-brand/30 lg:w-[460px]"
+              onChange={(event) => updateFilters(event.target.value, statusFilter)}
               placeholder="Search patient, doctor, status"
               type="search"
               value={search}
             />
             {search ? (
               <button
-                className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate transition hover:bg-mist hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
-                onClick={() => {
-                  updateFilters('', statusFilter)
-                }}
+                className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate transition hover:bg-mist hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
+                onClick={() => updateFilters('', statusFilter)}
                 type="button"
               >
                 <span className="sr-only">Clear appointment search</span>
@@ -476,49 +386,50 @@ export function Appointments() {
             ) : null}
           </label>
 
-          <div className="flex gap-2 overflow-x-auto">
-            {STATUS_FILTERS.map((status, index) => {
-              const active = statusFilter === status
-
-              return (
-                <button
-                  className={[
-                    'shrink-0 rounded-full border px-3 py-1 text-[12px] font-medium transition-all duration-150 animate-fade-in',
-                    active
-                      ? 'border-brand/30 bg-brand-light font-semibold text-brand'
-                      : 'border-hairline bg-mist text-slate hover:text-ink',
-                  ].join(' ')}
-                  key={status}
-                  onClick={() => handleStatusFilterChange(status)}
-                  style={stagger(index, 0.05)}
-                  type="button"
-                >
-                  {status === 'all' ? 'All' : formatStatus(status)}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <p className="text-[12px] font-medium text-slate">
-            {statusCounts.total} Total | {statusCounts.scheduled} Scheduled |{' '}
-            {statusCounts.in_progress} In Progress | {statusCounts.completed}{' '}
-            Completed
-          </p>
           {canManageAppointments ? (
             <button
-              className="primary-button inline-flex h-10 items-center justify-center rounded-control bg-brand px-4 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2"
-              onClick={() => {
-                setFormError('')
-                setDrawerOpen(true)
-              }}
+              className="primary-button inline-flex h-11 w-full items-center justify-center rounded-control bg-brand px-5 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 sm:w-auto lg:min-w-[190px]"
+              onClick={() => navigate('/appointments/book')}
               type="button"
             >
               <Plus aria-hidden="true" className="mr-2 h-4 w-4" />
               Book Appointment
             </button>
           ) : null}
+        </div>
+
+        <div className="mt-5 grid gap-2 border-t border-hairline pt-4 sm:grid-cols-2 lg:grid-cols-5">
+          {[
+            ['all', 'All', statusCounts.total],
+            ['scheduled', 'Scheduled', statusCounts.scheduled],
+            ['in_progress', 'In Progress', statusCounts.in_progress],
+            ['completed', 'Completed', statusCounts.completed],
+            ['cancelled', 'Cancelled', statusCounts.cancelled],
+          ].map(([status, label, count], index) => {
+            const active = statusFilter === status
+
+            return (
+              <button
+                className={[
+                  'flex h-11 items-center justify-between rounded-control border px-3.5 text-left transition-all duration-150 animate-fade-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
+                  active
+                    ? STATUS_TONES[status].active
+                    : STATUS_TONES[status].inactive,
+                ].join(' ')}
+                key={status}
+                onClick={() => updateFilters(search, status)}
+                style={stagger(index, 0.04)}
+                type="button"
+              >
+                <span className="truncate text-[12px] font-semibold uppercase tracking-wide">
+                  {label}
+                </span>
+                <span className="ml-3 rounded-full bg-canvas/80 px-2 py-0.5 font-mono text-[12px] font-semibold shadow-sm">
+                  {count}
+                </span>
+              </button>
+            )
+          })}
         </div>
       </section>
 
@@ -543,7 +454,7 @@ export function Appointments() {
       ) : (
         <section className="overflow-hidden rounded-card bg-canvas shadow-card">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] border-collapse text-left">
+            <table className="w-full min-w-[1180px] border-collapse text-left">
               <thead className="border-b border-hairline bg-mist">
                 <tr>
                   {[
@@ -551,6 +462,8 @@ export function Appointments() {
                     'Doctor',
                     'Date & Time',
                     'Reason',
+                    'Vitals',
+                    'Payment',
                     'Status',
                     'Actions',
                   ].map((header) => (
@@ -567,11 +480,11 @@ export function Appointments() {
               <tbody>
                 {isLoading ? (
                   Array.from({ length: 6 }).map((_, index) => (
-                    <SkeletonRow index={index} key={index} />
+                    <SkeletonRow columns={8} index={index} key={index} />
                   ))
                 ) : filteredAppointments.length === 0 ? (
                   <tr>
-                    <td className="px-5 py-12 text-center" colSpan={6}>
+                    <td className="px-5 py-12 text-center" colSpan={8}>
                       <CalendarClock
                         aria-hidden="true"
                         className="mx-auto mb-4 h-10 w-10 text-brand/25"
@@ -597,7 +510,7 @@ export function Appointments() {
                       ) : canManageAppointments ? (
                         <button
                           className="mt-4 text-sm font-semibold text-brand transition hover:text-brand-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2"
-                          onClick={() => setDrawerOpen(true)}
+                          onClick={() => navigate('/appointments/book')}
                           type="button"
                         >
                           + Book Appointment
@@ -608,9 +521,15 @@ export function Appointments() {
                 ) : (
                   filteredAppointments.map((appointment, index) => {
                     const appointmentId = getRecordId(appointment)
-                    const status = appointment.status || 'scheduled'
-                    const patientName = getPatientDisplay(appointment, patients)
+                    const status = normalizeAppointmentStatus(appointment.status)
+                    const allowedStatusOptions =
+                      getAllowedAppointmentStatuses(status)
+                    const patientName = getAppointmentPatientName(
+                      appointment,
+                      patients,
+                    )
                     const dateParts = formatDateParts(appointment.appointment_dt)
+                    const vitalsText = getVitalsText(appointment)
 
                     return (
                       <tr
@@ -635,7 +554,7 @@ export function Appointments() {
                           </div>
                         </td>
                         <td className="px-5 py-4 text-[14px] font-normal text-ink">
-                          {getDoctorDisplay(appointment, doctors)}
+                          {getAppointmentDoctorName(appointment, doctors)}
                         </td>
                         <td className="px-5 py-4 font-mono text-[13px] font-medium text-ink">
                           {dateParts.date}
@@ -653,24 +572,98 @@ export function Appointments() {
                           {appointment.reason || '-'}
                         </td>
                         <td className="px-5 py-4">
-                          <StatusBadge status={status} />
+                          {vitalsText ? (
+                            <span className="rounded bg-mist px-2 py-0.5 font-mono text-[12px] text-ink">
+                              {vitalsText}
+                            </span>
+                          ) : (
+                            <span className="text-slate/40">-</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-4">
+                          {canManageAppointments ? (
+                            <PaymentToggle
+                              disabled={updatingPaymentId === appointmentId}
+                              lockPaid
+                              onChange={(nextPaymentStatus) =>
+                                handlePaymentChange(appointmentId, nextPaymentStatus)
+                              }
+                              value={appointment.payment_status}
+                            />
+                          ) : (
+                            <PaymentBadge status={appointment.payment_status} />
+                          )}
                         </td>
                         <td className="px-5 py-4">
                           {canManageAppointments ? (
                             <select
-                              className="h-8 rounded-control border border-hairline bg-mist px-2 text-[13px] font-medium text-ink outline-none transition-all focus:border-brand focus:ring-2 focus:ring-brand/30"
+                              className={[
+                                'h-8 rounded-control border px-2 text-[13px] font-semibold outline-none transition-all focus:ring-2 focus:ring-brand/30 disabled:cursor-not-allowed disabled:opacity-80',
+                                STATUS_TONES[status]?.select ||
+                                  'border-hairline bg-mist text-ink',
+                              ].join(' ')}
+                              disabled={isTerminalAppointmentStatus(status)}
                               onChange={(event) =>
                                 handleStatusChange(appointmentId, event.target.value)
                               }
+                              title={
+                                isTerminalAppointmentStatus(status)
+                                  ? getStatusTransitionMessage(status, 'scheduled')
+                                  : 'Change appointment status'
+                              }
                               value={status}
                             >
-                              {STATUS_OPTIONS.map((statusOption) => (
+                              {allowedStatusOptions.map((statusOption) => (
                                 <option key={statusOption} value={statusOption}>
                                   {formatStatus(statusOption)}
                                 </option>
                               ))}
                             </select>
-                          ) : null}
+                          ) : (
+                            <StatusBadge status={status} />
+                          )}
+                        </td>
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-1">
+                            <button
+                              className="rounded-lg border border-blue-200 bg-blue-50 p-1.5 text-blue-700 transition-colors hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                              onClick={() => navigate(`/appointments/${appointmentId}`)}
+                              title="View appointment"
+                              type="button"
+                            >
+                              <span className="sr-only">View appointment</span>
+                              <Eye aria-hidden="true" className="h-4 w-4" />
+                            </button>
+                            {canManageAppointments ? (
+                              <button
+                                className="rounded-lg border border-amber-200 bg-amber-50 p-1.5 text-amber-700 transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+                                onClick={() =>
+                                  navigate(`/appointments/${appointmentId}/edit`)
+                                }
+                                title="Edit appointment"
+                                type="button"
+                              >
+                                <span className="sr-only">Edit appointment</span>
+                                <Pencil aria-hidden="true" className="h-4 w-4" />
+                              </button>
+                            ) : null}
+                            {canDeleteAppointments ? (
+                              <button
+                                className="rounded-lg border border-rose-200 bg-rose-50 p-1.5 text-rose-600 transition-colors hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300"
+                                onClick={() =>
+                                  setDeleteCandidate({
+                                    id: appointmentId,
+                                    patientName,
+                                  })
+                                }
+                                title="Delete appointment"
+                                type="button"
+                              >
+                                <span className="sr-only">Delete appointment</span>
+                                <Trash2 aria-hidden="true" className="h-4 w-4" />
+                              </button>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     )
@@ -682,129 +675,23 @@ export function Appointments() {
         </section>
       )}
 
-      <Drawer
-        footer={
-          <div className="flex justify-end gap-3">
-            <button
-              className="rounded-control bg-mist px-4 py-2.5 text-[14px] font-medium text-slate transition hover:bg-hairline hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2"
-              onClick={() => setDrawerOpen(false)}
-              type="button"
-            >
-              Cancel
-            </button>
-            <button
-              className={[
-                'primary-button flex min-w-[140px] items-center justify-center rounded-control px-4 py-2.5 text-[14px] font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70',
-                successPulse ? 'bg-status-completed-text' : 'bg-brand',
-              ].join(' ')}
-              disabled={isSubmitting}
-              form="appointment-form"
-              type="submit"
-            >
-              {isSubmitting ? (
-                <span className="h-4 w-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
-              ) : (
-                'Confirm Booking'
-              )}
-            </button>
-          </div>
-        }
-        onClose={() => setDrawerOpen(false)}
-        open={drawerOpen}
-        subtitle="Register a new patient visit"
-        title="Book Appointment"
-      >
-        <form
-          className="space-y-5"
-          id="appointment-form"
-          onSubmit={handleSubmit(handleBookAppointment)}
-        >
-          <DrawerField label="Patient">
-            <select
-              className={`${formInputClass} ${
-                errors.patient ? 'border-rose-400 bg-rose-50/30 ring-2 ring-rose-400/25' : ''
-              }`}
-              {...register('patient', { required: 'Patient is required.' })}
-            >
-              <option value="">Select patient</option>
-              {patientOptions.map((patient) => (
-                <option key={patient.id} value={patient.id}>
-                  {patient.label}
-                </option>
-              ))}
-            </select>
-            {patientOptions.length === 0 ? (
-              <p className="mt-1.5 text-[12px] font-normal text-slate">
-                No patients yet - add one on the Patients page.
-              </p>
-            ) : null}
-            <FieldError>{errors.patient?.message}</FieldError>
-          </DrawerField>
-
-          <DrawerField label="Doctor">
-            <select
-              className={`${formInputClass} ${
-                errors.doctor ? 'border-rose-400 bg-rose-50/30 ring-2 ring-rose-400/25' : ''
-              }`}
-              {...register('doctor', { required: 'Doctor is required.' })}
-            >
-              <option value="">Select doctor</option>
-              {doctorOptions.map((doctor) => (
-                <option key={doctor.id} value={doctor.id}>
-                  {doctor.label}
-                </option>
-              ))}
-            </select>
-            <FieldError>{errors.doctor?.message}</FieldError>
-          </DrawerField>
-
-          <DrawerField label="Date & Time">
-            <input
-              className={`${formInputClass} font-mono ${
-                errors.appointment_dt
-                  ? 'border-rose-400 bg-rose-50/30 ring-2 ring-rose-400/25'
-                  : ''
-              }`}
-              type="datetime-local"
-              {...register('appointment_dt', {
-                required: 'Date and time are required.',
-              })}
-            />
-            <p className="mt-1.5 text-[11px] font-normal text-slate/60">
-              Times are in UTC - Past dates will be rejected
-            </p>
-            <FieldError>{errors.appointment_dt?.message}</FieldError>
-          </DrawerField>
-
-          <DrawerField label="Reason for visit" optional>
-            <input
-              className={formInputClass}
-              placeholder="Routine check-in"
-              type="text"
-              {...register('reason')}
-            />
-          </DrawerField>
-
-          <DrawerField label="Notes" optional>
-            <textarea
-              className={`${formInputClass} min-h-[92px] resize-none`}
-              placeholder="Internal notes"
-              rows={3}
-              {...register('notes')}
-            />
-          </DrawerField>
-
-          {formError ? (
-            <div className="flex animate-fade-up items-start gap-2 rounded-control border border-rose-200 bg-rose-50 px-4 py-3">
-              <XCircle
-                aria-hidden="true"
-                className="mt-0.5 h-4 w-4 shrink-0 text-rose-500"
-              />
-              <p className="text-[13px] font-medium text-rose-700">{formError}</p>
-            </div>
-          ) : null}
-        </form>
-      </Drawer>
+      {deleteCandidate ? (
+        <ConfirmationModal
+          body={
+            <>
+              This will permanently delete the appointment for{' '}
+              <span className="font-semibold text-ink">
+                {deleteCandidate.patientName}
+              </span>.
+            </>
+          }
+          confirmLabel="Delete Appointment"
+          isLoading={isDeletingAppointment}
+          onCancel={() => setDeleteCandidate(null)}
+          onConfirm={handleDeleteAppointment}
+          title="Delete appointment?"
+        />
+      ) : null}
     </div>
   )
 }

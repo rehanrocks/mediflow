@@ -5,6 +5,7 @@ const SIZES = {
   sm: 'h-7 w-7 text-[11px]',
   md: 'h-9 w-9 text-[13px]',
   lg: 'h-11 w-11 text-sm',
+  xl: 'h-[52px] w-[52px] text-base',
 }
 
 export function Avatar({ name = 'MediFlow User', online = false, size = 'md' }) {
