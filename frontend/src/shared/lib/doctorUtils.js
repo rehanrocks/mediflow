@@ -1,4 +1,7 @@
 /* src/shared/lib/doctorUtils.js - Utility functions for doctors feature. */
+import { formatShiftTime } from './timeUtils'
+
+export { formatShiftTime }
 
 function parseTimeParts(time24) {
   if (!time24 || typeof time24 !== 'string') return null
@@ -11,16 +14,6 @@ function parseTimeParts(time24) {
   }
 
   return { hour, minute }
-}
-
-export function formatShiftTime(time24) {
-  const parts = parseTimeParts(time24)
-
-  if (!parts) return ''
-
-  const ampm = parts.hour >= 12 ? 'PM' : 'AM'
-  const displayHour = parts.hour % 12 || 12
-  return `${displayHour}:${String(parts.minute).padStart(2, '0')} ${ampm}`
 }
 
 export function computeAverages(dailyCases = []) {
@@ -51,6 +44,19 @@ export function isOnShift(shift_start, shift_end) {
 
   const endDate = new Date(now)
   endDate.setHours(end.hour, end.minute, 0, 0)
+
+  if (endDate.getTime() === startDate.getTime()) {
+    return false
+  }
+
+  if (endDate < startDate) {
+    endDate.setDate(endDate.getDate() + 1)
+
+    if (now < startDate) {
+      startDate.setDate(startDate.getDate() - 1)
+      endDate.setDate(endDate.getDate() - 1)
+    }
+  }
 
   return now >= startDate && now <= endDate
 }

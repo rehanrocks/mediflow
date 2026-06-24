@@ -1,9 +1,20 @@
 import axios from 'axios'
 
 import {
+  createDemoRole,
+  deleteDemoRole,
+  getDemoRoleById,
+  getDemoRoleNames,
+  getDemoRoles,
+  setDemoRolePermissions,
+  updateDemoRole,
+} from '@shared/lib/accessControlData'
+import { PUBLIC_ROUTES_FOR_TESTING } from '@shared/lib/testingAccess'
+import {
   bookDemoAppointment,
   createDemoDoctor,
   createDemoPatient,
+  createDemoQualification,
   createDemoStaff,
   deleteDemoAppointment,
   deleteDemoDoctor,
@@ -17,6 +28,7 @@ import {
   getDemoDoctorStats,
   getDemoPatient,
   getDemoPatients,
+  getDemoQualifications,
   getDemoStaff,
   getDemoStaffById,
   updateDemoAppointment,
@@ -31,7 +43,34 @@ export const api = axios.create({
   baseURL: 'http://localhost:8000/api',
 })
 
+const authSyncHandlers = {
+  getRefreshToken: () =>
+    localStorage.getItem('refresh_token') || localStorage.getItem('refresh') || '',
+  onSessionExpired: () => {},
+  onSessionSync: () => {},
+}
+
+export function configureAuthSync(handlers = {}) {
+  Object.assign(authSyncHandlers, handlers)
+}
+
+function dispatchToast(type, message) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.dispatchEvent(
+    new CustomEvent('mediflow:toast', {
+      detail: { message, type },
+    }),
+  )
+}
+
 function getAccessToken() {
+  if (PUBLIC_ROUTES_FOR_TESTING) {
+    return ''
+  }
+
   return (
     localStorage.getItem('access_token') ||
     localStorage.getItem('access')
@@ -63,6 +102,10 @@ function isFeatureRestriction(detail) {
     message.includes('enable this feature') ||
     message.includes('ask your admin to enable')
   )
+}
+
+function isWriteMethod(method = '') {
+  return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase())
 }
 
 function canUseBackend() {
@@ -121,18 +164,55 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     const detail = getDetailMessage(error)
 
-    if (error?.response?.status === 403) {
-      const path = error.config?.url || ''
+    if (
+      !PUBLIC_ROUTES_FOR_TESTING &&
+      error?.response?.status === 401 &&
+      !error.config?._retried &&
+      !String(error.config?.url || '').includes('/auth/refresh/')
+    ) {
+      const refreshTokenValue = authSyncHandlers.getRefreshToken()
+
+      if (refreshTokenValue) {
+        try {
+          error.config._retried = true
+          const data = await refreshToken(refreshTokenValue)
+          const accessToken = data?.access_token ?? data?.access
+
+          if (accessToken) {
+            localStorage.setItem('access_token', accessToken)
+            localStorage.removeItem('access')
+            error.config.headers = {
+              ...error.config.headers,
+              Authorization: `Bearer ${accessToken}`,
+            }
+          }
+
+          authSyncHandlers.onSessionSync(data)
+
+          return api(error.config)
+        } catch (refreshError) {
+          authSyncHandlers.onSessionExpired()
+          return Promise.reject(refreshError)
+        }
+      }
+    }
+
+    if (!PUBLIC_ROUTES_FOR_TESTING && error?.response?.status === 403) {
+      const method = error.config?.method || ''
 
       error.detail = detail
       error.featureBlocked = isFeatureRestriction(detail)
 
-      if (path.includes('/staff/')) {
-        window.location.href = '/not-available?reason=role'
-        return Promise.reject(error)
+      if (isWriteMethod(method)) {
+        dispatchToast(
+          'error',
+          detail || 'You do not have permission to perform this action.',
+        )
+      } else if (typeof window !== 'undefined') {
+        window.location.assign('/not-available')
       }
     }
 
@@ -147,7 +227,10 @@ export async function login(email, password) {
 
 export async function refreshToken(refreshTokenValue) {
   const { data } = await api.post('/auth/refresh/', {
-    refresh_token: refreshTokenValue,
+    refresh_token:
+      refreshTokenValue ||
+      localStorage.getItem('refresh_token') ||
+      localStorage.getItem('refresh'),
   })
   return data
 }
@@ -273,6 +356,103 @@ export async function deleteDoctor(id) {
       return data
     },
     () => deleteDemoDoctor(id),
+  )
+}
+
+export async function getQualifications() {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.get('/qualifications/')
+      return data
+    },
+    () => getDemoQualifications(),
+  )
+}
+
+export async function createQualification(name) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.post('/qualifications/', { name })
+      return data
+    },
+    () => createDemoQualification(name),
+  )
+}
+
+export async function getRoles() {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.get('/access-control/roles/')
+      return data
+    },
+    () => getDemoRoles(),
+  )
+}
+
+export async function getRoleById(roleId) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.get(`/access-control/roles/${roleId}/`)
+      return data
+    },
+    () => getDemoRoleById(roleId),
+  )
+}
+
+export async function createRole(roleData) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.post('/access-control/roles/', roleData)
+      return data
+    },
+    () => createDemoRole(roleData),
+  )
+}
+
+export async function updateRole(roleId, roleData) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.put(`/access-control/roles/${roleId}/`, roleData)
+      return data
+    },
+    () => updateDemoRole(roleId, roleData),
+  )
+}
+
+export async function deleteRole(roleId) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.delete(`/access-control/roles/${roleId}/`)
+      return data
+    },
+    () => deleteDemoRole(roleId),
+  )
+}
+
+export async function setRolePermissions(roleId, payload) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.post(
+        `/access-control/roles/${roleId}/set-permissions/`,
+        payload,
+      )
+      return data
+    },
+    () => setDemoRolePermissions(roleId, payload),
+  )
+}
+
+export async function updateRolePermissions(roleId, permissions) {
+  return setRolePermissions(roleId, { permissions })
+}
+
+export async function getRoleNames() {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.get('/access-control/role-names/')
+      return data
+    },
+    () => getDemoRoleNames(),
   )
 }
 

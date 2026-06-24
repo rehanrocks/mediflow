@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- src/shared/components/Toast.jsx - Provides stacked toast notifications and hook access. */
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react'
 
 const ToastContext = createContext(null)
@@ -57,10 +57,25 @@ export function ToastProvider({ children }) {
       success: (message) => showToast({ message, type: 'success' }),
       error: (message) => showToast({ message, type: 'error' }),
       info: (message) => showToast({ message, type: 'info' }),
+      custom: (message, type = 'info') => showToast({ message, type }),
       dismiss,
     }),
     [dismiss, showToast],
   )
+
+  useEffect(() => {
+    function handleGlobalToast(event) {
+      const { message, type = 'info' } = event.detail || {}
+
+      if (message) {
+        showToast({ message, type })
+      }
+    }
+
+    window.addEventListener('mediflow:toast', handleGlobalToast)
+
+    return () => window.removeEventListener('mediflow:toast', handleGlobalToast)
+  }, [showToast])
 
   return (
     <ToastContext.Provider value={value}>

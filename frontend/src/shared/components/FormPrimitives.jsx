@@ -44,7 +44,7 @@ export function FormField({ children, error, hint, label, optional }) {
     <label className="block animate-fade-up">
       <span
         className={[
-          'mb-1.5 block text-[13px] font-semibold',
+          'mb-1.5 block text-[13px] font-medium',
           error ? 'text-rose-500' : 'text-ink',
         ].join(' ')}
       >
@@ -59,7 +59,7 @@ export function FormField({ children, error, hint, label, optional }) {
       {showHint ? (
         <p
           className={[
-            'mt-1.5 text-[11px] font-normal',
+            'mt-1.5 text-[12px] font-normal italic',
             error ? 'text-rose-500' : 'text-slate/60',
           ].join(' ')}
         >
@@ -74,7 +74,7 @@ export function FormField({ children, error, hint, label, optional }) {
 export function FormSection({ children, title }) {
   return (
     <section className="animate-fade-up">
-      <h2 className="mb-3 text-[13px] font-semibold uppercase tracking-wide text-slate">
+      <h2 className="mb-3 text-[13px] font-medium uppercase tracking-wide text-slate">
         {title}
       </h2>
       <div className="mb-5 h-px bg-hairline" />

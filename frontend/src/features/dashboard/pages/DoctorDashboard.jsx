@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  ArrowUpRight,
   CalendarCheck,
   CalendarDays,
   ClipboardList,
   Clock3,
   Eye,
+  HeartPulse,
+  ShieldCheck,
+  Sparkles,
   TrendingUp,
   Users,
 } from 'lucide-react'
@@ -13,6 +17,9 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
+  Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -26,6 +33,7 @@ import {
   DashboardChartTooltip,
   DashboardEmptyState,
   DashboardErrorState,
+  DashboardMiniSparkline,
   DashboardPanel,
   DashboardStatCard,
 } from '@features/dashboard/components/DashboardPrimitives'
@@ -34,7 +42,7 @@ import SkeletonRow from '@shared/components/SkeletonRow'
 import { useAuth } from '@shared/context/AuthContext'
 import { buildGreeting } from '@shared/lib/greeting'
 import { stagger } from '@shared/lib/motion'
-import { getUserDoctorId, isDoctor } from '@shared/lib/permissions'
+import { getUserDoctorId, usePermission } from '@shared/lib/usePermission'
 import {
   formatDate,
   formatDateParts,
@@ -75,6 +83,14 @@ const STATUS_COLORS = {
   completed: '#059669',
   cancelled: '#DC2626',
 }
+
+const SCHEDULE_TIME_BUCKETS = [
+  { end: 9, key: 'early', label: '7-9a', start: 7 },
+  { end: 11, key: 'morning', label: '9-11a', start: 9 },
+  { end: 13, key: 'midday', label: '11-1p', start: 11 },
+  { end: 15, key: 'afternoon', label: '1-3p', start: 13 },
+  { end: 18, key: 'late', label: '3-6p', start: 15 },
+]
 
 function formatStatusLabel(status) {
   return String(status || 'scheduled')
@@ -178,28 +194,14 @@ function normalizePaginatedResponse(response) {
   }
 }
 
-function CasesTooltip({ active, payload }) {
-  if (!active || !payload?.length) {
-    return null
-  }
-
-  const entry = payload[0]?.payload
-
-  return (
-    <div className="rounded-xl border border-hairline bg-canvas px-3 py-2 shadow-card">
-      <p className="font-mono text-[12px] text-slate">{entry.fullDate}</p>
-      <p className="text-[14px] font-semibold text-ink">{entry.count} cases</p>
-    </div>
-  )
-}
-
 export function DoctorDashboard() {
   const navigate = useNavigate()
-  const { hasFeature, user } = useAuth()
-  const appointmentsEnabled = hasFeature('appointments')
-  const patientsEnabled = hasFeature('patients')
+  const { user } = useAuth()
+  const { canRead, role } = usePermission()
+  const appointmentsEnabled = canRead('appointments')
+  const patientsEnabled = canRead('patients')
   const doctorId = getUserDoctorId(user)
-  const doctorUser = isDoctor(user)
+  const doctorUser = role?.slug === 'doctor'
   const supportPreview = !doctorUser
   const [dashboardData, setDashboardData] = useState({
     doctorProfile: null,
@@ -334,6 +336,8 @@ export function DoctorDashboard() {
     [dashboardData.todayAppointments],
   )
 
+  const nextAppointment = scheduleAppointments[0] || null
+
   const myPatients = useMemo(
     () =>
       [...dashboardData.patients]
@@ -359,14 +363,101 @@ export function DoctorDashboard() {
     [dashboardData.patients],
   )
 
+  const averageCases = Number(dashboardData.stats.avg_cases_per_day || 0)
+
   const casesChartData = useMemo(
     () =>
       (dashboardData.stats.daily_cases || []).slice(-7).map((item) => ({
+        avg: averageCases,
         count: Number(item.count || 0),
         day: formatDayLabel(item.date),
         fullDate: formatDate(item.date),
       })),
-    [dashboardData.stats.daily_cases],
+    [averageCases, dashboardData.stats.daily_cases],
+  )
+
+  const doctorHeroSparkline = useMemo(
+    () => casesChartData.map((day) => day.count),
+    [casesChartData],
+  )
+
+  const doctorHeroSparkLabels = useMemo(() => {
+    if (casesChartData.length === 0) {
+      return ['Start', 'Mid', 'Now']
+    }
+
+    return [
+      casesChartData[0]?.day || 'Start',
+      casesChartData[Math.floor(casesChartData.length / 2)]?.day || 'Mid',
+      casesChartData.at(-1)?.day || 'Now',
+    ]
+  }, [casesChartData])
+
+  const weeklyCasesTotal = useMemo(
+    () => casesChartData.reduce((sum, day) => sum + day.count, 0),
+    [casesChartData],
+  )
+
+  const bestCaseDay = useMemo(
+    () =>
+      casesChartData.reduce(
+        (best, day) => (day.count > (best?.count || 0) ? day : best),
+        null,
+      ),
+    [casesChartData],
+  )
+
+  const hourlyScheduleData = useMemo(() => {
+    const buckets = SCHEDULE_TIME_BUCKETS.map((bucket) => ({
+      ...bucket,
+      cancelled: 0,
+      completed: 0,
+      count: 0,
+      inProgress: 0,
+      scheduled: 0,
+    }))
+
+    dashboardData.todayAppointments.forEach((appointment) => {
+      const appointmentDate = getAppointmentDate(appointment)
+
+      if (!appointmentDate) {
+        return
+      }
+
+      const hour = appointmentDate.getHours()
+      const targetBucket =
+        buckets.find((bucket) => hour >= bucket.start && hour < bucket.end) ||
+        (hour < buckets[0].start ? buckets[0] : buckets.at(-1))
+      const status = String(appointment.status || 'scheduled').toLowerCase()
+
+      targetBucket.count += 1
+
+      if (status === 'completed') {
+        targetBucket.completed += 1
+      } else if (status === 'cancelled') {
+        targetBucket.cancelled += 1
+      } else if (status === 'in_progress') {
+        targetBucket.inProgress += 1
+      } else {
+        targetBucket.scheduled += 1
+      }
+    })
+
+    return buckets
+  }, [dashboardData.todayAppointments])
+
+  const hourlyScheduleTotal = useMemo(
+    () => hourlyScheduleData.reduce((sum, item) => sum + item.count, 0),
+    [hourlyScheduleData],
+  )
+
+  const busiestScheduleSlot = useMemo(
+    () =>
+      hourlyScheduleData.reduce(
+        (best, item) => (item.count > (best?.count || 0) ? item : best),
+        null,
+      ),
+    [hourlyScheduleData],
   )
 
   const todayStatusData = useMemo(() => {
@@ -386,6 +477,27 @@ export function DoctorDashboard() {
       .filter((item) => item.count > 0)
   }, [dashboardData.todayAppointments])
 
+  const todayCompletedCount = useMemo(
+    () =>
+      dashboardData.todayAppointments.filter(
+        (appointment) => String(appointment.status || '').toLowerCase() === 'completed',
+      ).length,
+    [dashboardData.todayAppointments],
+  )
+
+  const todayOpenCount = useMemo(
+    () =>
+      dashboardData.todayAppointments.filter((appointment) => {
+        const status = String(appointment.status || '').toLowerCase()
+        return status !== 'completed' && status !== 'cancelled'
+      }).length,
+    [dashboardData.todayAppointments],
+  )
+
+  const scheduleCompletionRate = dashboardData.todayAppointments.length
+    ? Math.round((todayCompletedCount / dashboardData.todayAppointments.length) * 100)
+    : 0
+
   const patientConditionData = useMemo(() => {
     const conditionCounts = dashboardData.patients.reduce((counts, patient) => {
       const condition = getPatientConditions(patient)[0] || 'Unspecified'
@@ -399,6 +511,28 @@ export function DoctorDashboard() {
       .slice(0, 5)
   }, [dashboardData.patients])
 
+  const topCondition = patientConditionData[0]?.label || 'No condition mix'
+
+  const todayStatusTotal = useMemo(
+    () => todayStatusData.reduce((sum, item) => sum + item.count, 0),
+    [todayStatusData],
+  )
+
+  const todayStatusPeak = useMemo(
+    () => Math.max(1, ...todayStatusData.map((item) => item.count)),
+    [todayStatusData],
+  )
+
+  const conditionTotal = useMemo(
+    () => patientConditionData.reduce((sum, item) => sum + item.count, 0),
+    [patientConditionData],
+  )
+
+  const conditionPeak = useMemo(
+    () => Math.max(1, ...patientConditionData.map((item) => item.count)),
+    [patientConditionData],
+  )
+
   const statCards = useMemo(
     () =>
       [
@@ -407,7 +541,7 @@ export function DoctorDashboard() {
               context: 'Today',
               icon: ClipboardList,
               label: 'Cases Today',
-              tone: 'bg-brand-light text-brand',
+              tone: 'bg-[#FCE7F3] text-[#DB2777]',
               value: dashboardData.stats.cases_today,
             }
           : null,
@@ -416,7 +550,7 @@ export function DoctorDashboard() {
               context: 'This week',
               icon: CalendarDays,
               label: 'This Week',
-              tone: 'bg-[#E0F2FE] text-[#0284C7]',
+              tone: 'bg-[#F3E8FF] text-[#7C3AED]',
               value: dashboardData.stats.cases_this_week,
             }
           : null,
@@ -425,7 +559,7 @@ export function DoctorDashboard() {
               context: 'Assigned records',
               icon: Users,
               label: 'My Patients',
-              tone: 'bg-[#ECFDF5] text-[#047857]',
+              tone: 'bg-[#E0F2FE] text-[#0284C7]',
               value: dashboardData.totalPatients,
             }
           : null,
@@ -435,7 +569,7 @@ export function DoctorDashboard() {
               icon: TrendingUp,
               label: 'Daily Average',
               precision: 1,
-              tone: 'bg-[#FFF7ED] text-[#C2410C]',
+              tone: 'bg-[#ECFDF5] text-[#059669]',
               value: dashboardData.stats.avg_cases_per_day,
             }
           : null,
@@ -450,10 +584,43 @@ export function DoctorDashboard() {
     ],
   )
 
+  const doctorSignals = useMemo(
+    () => [
+      {
+        context: `${todayOpenCount} still open`,
+        icon: CalendarCheck,
+        label: 'Schedule',
+        tone: 'bg-[#E0F2FE] text-[#0284C7]',
+        value: `${scheduleCompletionRate}% done`,
+      },
+      {
+        context: 'Top patient cluster',
+        icon: HeartPulse,
+        label: 'Condition Focus',
+        tone: 'bg-[#FCE7F3] text-[#DB2777]',
+        value: topCondition,
+      },
+      {
+        context: `${averageCases.toFixed(1)} daily average`,
+        icon: ShieldCheck,
+        label: 'Case Rhythm',
+        tone: 'bg-[#ECFDF5] text-[#059669]',
+        value: `${dashboardData.stats.cases_this_week} this week`,
+      },
+    ],
+    [
+      averageCases,
+      dashboardData.stats.cases_this_week,
+      scheduleCompletionRate,
+      todayOpenCount,
+      topCondition,
+    ],
+  )
+
   const supportHeroTitle = 'Doctor workspace preview'
   const supportHeroDescription =
     'Use a doctor account to view personal schedule, patient activity, and performance metrics.'
-  const heroGreeting = doctorUser ? buildGreeting(user) : supportHeroTitle
+  const heroGreeting = doctorUser ? buildGreeting(user, role) : supportHeroTitle
   const heroDateLine = doctorUser ? formatLongDate() : supportHeroDescription
   const arrivalValue =
     doctorUser && dashboardData.doctorProfile?.today_checkin
@@ -499,30 +666,111 @@ export function DoctorDashboard() {
   }
 
   return (
-    <div className="space-y-5">
-      <section
-        className="animate-fade-up overflow-hidden rounded-card p-6 text-white shadow-card"
-        style={{
-          backgroundImage:
-            'radial-gradient(ellipse at 70% 50%, rgba(255,255,255,0.1), transparent 60%), linear-gradient(90deg, #4338CA 0%, #6366F1 100%)',
-        }}
-      >
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="text-[22px] font-bold text-white">{heroGreeting}</h2>
-            <p className="mt-1 text-[14px] font-normal text-white/70">{heroDateLine}</p>
-            <p className="mt-3 inline-flex items-center font-mono text-[13px] text-white/80">
-              <Clock3 aria-hidden="true" className="mr-1.5 h-[13px] w-[13px]" />
-              {shiftValue}
-            </p>
+    <div className="dashboard-stage space-y-5">
+      <section className="relative animate-fade-up overflow-hidden rounded-[30px] border border-white/80 bg-[linear-gradient(135deg,#FFFFFF_0%,#F8FAFC_54%,#E0F2FE_100%)] p-6 shadow-[0_24px_80px_rgba(20,24,31,0.09)]">
+        <div className="pointer-events-none absolute -left-20 -top-20 h-64 w-64 rounded-full bg-[#0EA5E9]/15 blur-3xl" />
+        <div className="pointer-events-none absolute -right-20 top-10 h-64 w-64 rounded-full bg-[#7C3AED]/15 blur-3xl" />
+        <div className="relative grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="flex min-w-0 flex-col justify-between gap-6">
+            <div>
+              <span className="inline-flex items-center gap-2 rounded-full border border-sky-200/70 bg-white/75 px-3 py-1.5 text-[12px] font-semibold text-sky-700 shadow-sm backdrop-blur">
+                <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />
+                Clinical cockpit
+              </span>
+              <h2 className="mt-4 max-w-2xl text-[28px] font-bold leading-tight tracking-[-0.03em] text-ink md:text-[34px]">
+                {heroGreeting}
+              </h2>
+              <p className="mt-3 max-w-2xl text-[14px] leading-6 text-slate">
+                {heroDateLine}
+              </p>
+              <p className="mt-4 inline-flex items-center rounded-full bg-white/80 px-3 py-1.5 font-mono text-[12px] font-semibold text-slate shadow-sm">
+                <Clock3 aria-hidden="true" className="mr-1.5 h-3.5 w-3.5 text-brand" />
+                Shift {shiftValue}
+              </p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              {doctorSignals.map((signal, index) => {
+                const SignalIcon = signal.icon
+
+                return (
+                  <div
+                    className="animate-fade-up rounded-[20px] border border-white/75 bg-white/80 p-4 shadow-[0_12px_34px_rgba(20,24,31,0.06)] backdrop-blur"
+                    key={signal.label}
+                    style={stagger(index, 0.05)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-slate">
+                          {signal.label}
+                        </p>
+                        <p className="mt-2 truncate text-[18px] font-bold leading-none text-ink">
+                          {isLoading ? '-' : signal.value}
+                        </p>
+                        <p className="mt-2 truncate text-[12px] font-medium text-slate">
+                          {isLoading ? 'Syncing schedule' : signal.context}
+                        </p>
+                      </div>
+                      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${signal.tone}`}>
+                        <SignalIcon aria-hidden="true" className="h-4 w-4" />
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </div>
 
-          <div className="flex flex-col text-left lg:text-right">
-            <p className="font-mono text-[13px] text-white/80">Arrived {arrivalValue}</p>
-            <p className="mt-2 text-[32px] font-bold leading-none text-white">
-              {Number(dashboardData.stats.cases_today || 0)}
-            </p>
-            <p className="mt-1 text-[13px] text-white/60">cases today</p>
+          <div className="relative overflow-hidden rounded-[26px] bg-[linear-gradient(160deg,#0F172A_0%,#4338CA_55%,#7C3AED_100%)] p-5 text-white shadow-[0_22px_60px_rgba(67,56,202,0.28)]">
+            <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-white/20 blur-2xl" />
+            <div className="relative flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[13px] font-semibold text-white/70">Today&apos;s work</p>
+                <p className="mt-3 text-[46px] font-bold leading-none tracking-[-0.04em]">
+                  {isLoading ? '--' : Number(dashboardData.stats.cases_today || 0)}
+                </p>
+                <p className="mt-2 text-[13px] text-white/70">cases today</p>
+              </div>
+              <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-3 py-1.5 text-[12px] font-semibold text-white backdrop-blur">
+                <ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5" />
+                Arrived {arrivalValue}
+              </span>
+            </div>
+
+            <div className="relative mt-8 h-[92px]">
+              <DashboardMiniSparkline
+                areaClassName="fill-white/10"
+                className="analytics-wave absolute inset-0 h-full w-full overflow-visible"
+                lineClassName="stroke-white/85"
+                values={doctorHeroSparkline}
+              />
+              <div className="absolute bottom-0 left-0 right-0 flex justify-between font-mono text-[11px] text-white/60">
+                {doctorHeroSparkLabels.map((label) => (
+                  <span key={label}>{label}</span>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <div className="rounded-2xl bg-white/12 p-3 backdrop-blur">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+                  Next patient
+                </p>
+                <p className="mt-1 truncate text-[16px] font-bold">
+                  {nextAppointment ? getAppointmentPatientName(nextAppointment) : 'Schedule clear'}
+                </p>
+                <p className="mt-1 font-mono text-[11px] text-white/60">
+                  {nextAppointment ? formatClock(nextAppointment.appointment_dt) : '-'}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-white/12 p-3 backdrop-blur">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55">
+                  Completion
+                </p>
+                <p className="mt-1 text-[22px] font-bold">{isLoading ? '-' : `${scheduleCompletionRate}%`}</p>
+                <p className="mt-1 text-[11px] text-white/60">{todayCompletedCount} finished</p>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -551,83 +799,295 @@ export function DoctorDashboard() {
       ) : null}
 
       {appointmentsEnabled || patientsEnabled ? (
-        <section className="grid gap-5 xl:grid-cols-2">
+        <section className="grid gap-5 xl:grid-cols-3">
           {appointmentsEnabled ? (
-            <DashboardPanel bodyClassName="p-5" title="Today's Status Mix">
+            <DashboardPanel bodyClassName="p-0" title="Today's Status Mix">
               {isLoading ? (
-                <div className="h-[210px] rounded-control bg-mist p-4">
+                <div className="m-5 h-[300px] rounded-[24px] bg-mist p-4">
                   <div className="h-full animate-shimmer rounded-control bg-gradient-to-r from-hairline via-canvas to-hairline bg-[length:200%_100%]" />
                 </div>
               ) : todayStatusData.length === 0 ? (
                 <DashboardEmptyState title="No schedule status data yet" />
               ) : (
-                <div className="h-[210px]">
-                  <ResponsiveContainer height="100%" width="100%">
-                    <BarChart data={todayStatusData} margin={{ bottom: 0, left: -18, right: 8, top: 8 }}>
-                      <CartesianGrid stroke="#E4E8EB" strokeDasharray="4 4" vertical={false} />
-                      <XAxis
-                        axisLine={false}
-                        dataKey="label"
-                        tick={{ fill: '#5B6472', fontFamily: 'JetBrains Mono', fontSize: 10 }}
-                        tickLine={false}
-                        tickMargin={10}
-                      />
-                      <YAxis
-                        allowDecimals={false}
-                        axisLine={false}
-                        tick={{ fill: '#5B6472', fontFamily: 'JetBrains Mono', fontSize: 10 }}
-                        tickLine={false}
-                        tickMargin={8}
-                      />
-                      <Tooltip content={<DashboardChartTooltip />} cursor={{ fill: '#F6F8F9' }} />
-                      <Bar dataKey="count" name="Appointments" radius={[5, 5, 0, 0]}>
-                        {todayStatusData.map((item) => (
-                          <Cell fill={item.color} key={item.status} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+                <div className="analytics-surface overflow-hidden p-5">
+                  <div className="relative flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-slate">
+                        Today&apos;s schedule pulse
+                      </p>
+                      <p className="mt-2 text-[34px] font-bold leading-none tracking-[-0.04em] text-ink">
+                        {todayStatusTotal}
+                      </p>
+                      <p className="mt-1 text-[12px] font-medium text-slate">
+                        appointments on your board
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-[#ECFDF5] px-3 py-1.5 font-mono text-[11px] font-bold text-[#059669]">
+                      {scheduleCompletionRate}% done
+                    </span>
+                  </div>
+
+                  <div className="relative mt-5 h-[224px]">
+                    <ResponsiveContainer height="100%" width="100%">
+                      <BarChart data={todayStatusData} margin={{ bottom: 0, left: -18, right: 8, top: 8 }}>
+                        <defs>
+                          <linearGradient id="doctorStatusGradient-scheduled" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stopColor="#38BDF8" />
+                            <stop offset="100%" stopColor="#0284C7" />
+                          </linearGradient>
+                          <linearGradient id="doctorStatusGradient-in_progress" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stopColor="#F59E0B" />
+                            <stop offset="100%" stopColor="#D97706" />
+                          </linearGradient>
+                          <linearGradient id="doctorStatusGradient-completed" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stopColor="#34D399" />
+                            <stop offset="100%" stopColor="#059669" />
+                          </linearGradient>
+                          <linearGradient id="doctorStatusGradient-cancelled" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stopColor="#FB7185" />
+                            <stop offset="100%" stopColor="#DC2626" />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid stroke="#E4E8EB" strokeDasharray="4 7" vertical={false} />
+                        <XAxis
+                          axisLine={false}
+                          dataKey="label"
+                          tick={{ fill: '#5B6472', fontFamily: 'JetBrains Mono', fontSize: 10 }}
+                          tickLine={false}
+                          tickMargin={12}
+                        />
+                        <YAxis
+                          allowDecimals={false}
+                          axisLine={false}
+                          tick={{ fill: '#5B6472', fontFamily: 'JetBrains Mono', fontSize: 10 }}
+                          tickLine={false}
+                          tickMargin={8}
+                        />
+                        <Tooltip content={<DashboardChartTooltip />} cursor={{ fill: '#FFFFFF66' }} />
+                        <Bar
+                          background={{ fill: '#EEF2F7', radius: 10 }}
+                          barSize={58}
+                          dataKey="count"
+                          name="Appointments"
+                          radius={[14, 14, 8, 8]}
+                        >
+                          {todayStatusData.map((item) => (
+                            <Cell fill={`url(#doctorStatusGradient-${item.status})`} key={item.status} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <div className="relative mt-4 grid gap-2 sm:grid-cols-3">
+                    {todayStatusData.map((item) => (
+                      <div className="rounded-2xl bg-white/80 p-3 shadow-sm" key={item.status}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-[12px] font-semibold text-slate">
+                            {item.label}
+                          </span>
+                          <span className="font-mono text-[12px] font-bold text-ink">{item.count}</span>
+                        </div>
+                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              backgroundColor: item.color,
+                              width: `${Math.round((item.count / todayStatusPeak) * 100)}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </DashboardPanel>
+          ) : null}
+
+          {appointmentsEnabled ? (
+            <DashboardPanel bodyClassName="p-0" title="Today's Hourly Flow">
+              {isLoading ? (
+                <div className="m-5 h-[300px] rounded-[24px] bg-mist p-4">
+                  <div className="h-full animate-shimmer rounded-control bg-gradient-to-r from-hairline via-canvas to-hairline bg-[length:200%_100%]" />
+                </div>
+              ) : hourlyScheduleTotal === 0 ? (
+                <DashboardEmptyState title="No hourly schedule data yet" />
+              ) : (
+                <div className="analytics-surface overflow-hidden p-5">
+                  <div className="relative flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-slate">
+                        Bar graph by time
+                      </p>
+                      <p className="mt-2 text-[34px] font-bold leading-none tracking-[-0.04em] text-ink">
+                        {hourlyScheduleTotal}
+                      </p>
+                      <p className="mt-1 text-[12px] font-medium text-slate">
+                        appointments across the day
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-[#E0F2FE] px-3 py-1.5 font-mono text-[11px] font-bold text-[#0284C7]">
+                      Peak {busiestScheduleSlot?.label || '-'}
+                    </span>
+                  </div>
+
+                  <div className="relative mt-5 h-[224px]">
+                    <ResponsiveContainer height="100%" width="100%">
+                      <BarChart data={hourlyScheduleData} margin={{ bottom: 0, left: -18, right: 8, top: 8 }}>
+                        <defs>
+                          <linearGradient id="hourlyFlowScheduled" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stopColor="#38BDF8" />
+                            <stop offset="100%" stopColor="#0284C7" />
+                          </linearGradient>
+                          <linearGradient id="hourlyFlowCompleted" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stopColor="#34D399" />
+                            <stop offset="100%" stopColor="#059669" />
+                          </linearGradient>
+                          <linearGradient id="hourlyFlowInProgress" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stopColor="#FBBF24" />
+                            <stop offset="100%" stopColor="#D97706" />
+                          </linearGradient>
+                          <linearGradient id="hourlyFlowCancelled" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stopColor="#FB7185" />
+                            <stop offset="100%" stopColor="#DC2626" />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid stroke="#E4E8EB" strokeDasharray="4 7" vertical={false} />
+                        <XAxis
+                          axisLine={false}
+                          dataKey="label"
+                          tick={{ fill: '#5B6472', fontFamily: 'JetBrains Mono', fontSize: 10 }}
+                          tickLine={false}
+                          tickMargin={12}
+                        />
+                        <YAxis
+                          allowDecimals={false}
+                          axisLine={false}
+                          tick={{ fill: '#5B6472', fontFamily: 'JetBrains Mono', fontSize: 10 }}
+                          tickLine={false}
+                          tickMargin={8}
+                        />
+                        <Tooltip content={<DashboardChartTooltip />} cursor={{ fill: '#FFFFFF66' }} />
+                        <Bar
+                          barSize={38}
+                          dataKey="scheduled"
+                          fill="url(#hourlyFlowScheduled)"
+                          name="Scheduled"
+                          radius={[10, 10, 6, 6]}
+                          stackId="hourly"
+                        />
+                        <Bar
+                          barSize={38}
+                          dataKey="inProgress"
+                          fill="url(#hourlyFlowInProgress)"
+                          name="In Progress"
+                          radius={[10, 10, 6, 6]}
+                          stackId="hourly"
+                        />
+                        <Bar
+                          barSize={38}
+                          dataKey="completed"
+                          fill="url(#hourlyFlowCompleted)"
+                          name="Completed"
+                          radius={[10, 10, 6, 6]}
+                          stackId="hourly"
+                        />
+                        <Bar
+                          barSize={38}
+                          dataKey="cancelled"
+                          fill="url(#hourlyFlowCancelled)"
+                          name="Cancelled"
+                          radius={[10, 10, 6, 6]}
+                          stackId="hourly"
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <div className="relative mt-4 grid grid-cols-5 gap-2">
+                    {hourlyScheduleData.map((bucket) => (
+                      <div className="rounded-2xl bg-white/80 p-2.5 text-center shadow-sm" key={bucket.key}>
+                        <p className="font-mono text-[11px] font-bold text-ink">{bucket.count}</p>
+                        <p className="mt-1 text-[10px] font-semibold text-slate">{bucket.label}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </DashboardPanel>
           ) : null}
 
           {patientsEnabled ? (
-            <DashboardPanel bodyClassName="p-5" title="My Patient Conditions">
+            <DashboardPanel bodyClassName="p-0" title="My Patient Conditions">
               {isLoading ? (
-                <div className="h-[210px] rounded-control bg-mist p-4">
+                <div className="m-5 h-[300px] rounded-[24px] bg-mist p-4">
                   <div className="h-full animate-shimmer rounded-control bg-gradient-to-r from-hairline via-canvas to-hairline bg-[length:200%_100%]" />
                 </div>
               ) : patientConditionData.length === 0 ? (
                 <DashboardEmptyState title="No condition data yet" />
               ) : (
-                <div className="h-[210px]">
-                  <ResponsiveContainer height="100%" width="100%">
-                    <BarChart
-                      data={patientConditionData}
-                      layout="vertical"
-                      margin={{ bottom: 0, left: 18, right: 8, top: 8 }}
-                    >
-                      <CartesianGrid stroke="#E4E8EB" strokeDasharray="4 4" horizontal={false} />
-                      <XAxis
-                        allowDecimals={false}
-                        axisLine={false}
-                        tick={{ fill: '#5B6472', fontFamily: 'JetBrains Mono', fontSize: 10 }}
-                        tickLine={false}
-                        type="number"
-                      />
-                      <YAxis
-                        axisLine={false}
-                        dataKey="label"
-                        tick={{ fill: '#5B6472', fontSize: 10 }}
-                        tickLine={false}
-                        type="category"
-                        width={116}
-                      />
-                      <Tooltip content={<DashboardChartTooltip />} cursor={{ fill: '#EEF2FF66' }} />
-                      <Bar dataKey="count" fill="#4338CA" name="Patients" radius={[0, 5, 5, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                <div className="analytics-surface overflow-hidden p-5">
+                  <div className="relative flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-slate">
+                        Clinical condition mix
+                      </p>
+                      <p className="mt-2 text-[34px] font-bold leading-none tracking-[-0.04em] text-ink">
+                        {conditionTotal}
+                      </p>
+                      <p className="mt-1 text-[12px] font-medium text-slate">
+                        assigned patient conditions
+                      </p>
+                    </div>
+                    <span className="max-w-[150px] truncate rounded-full bg-brand-light px-3 py-1.5 text-[11px] font-bold text-brand">
+                      Focus {topCondition}
+                    </span>
+                  </div>
+
+                  <div className="relative mt-6 space-y-4">
+                    {patientConditionData.map((condition, index) => {
+                      const palette = ['#4338CA', '#0EA5E9', '#0D9488', '#F59E0B', '#DB2777']
+                      const color = palette[index % palette.length]
+                      const percent = Math.round((condition.count / conditionTotal) * 100)
+
+                      return (
+                        <div
+                          className="animate-fade-up rounded-[20px] border border-white/80 bg-white/80 p-4 shadow-[0_10px_30px_rgba(20,24,31,0.05)]"
+                          key={condition.label}
+                          style={stagger(index, 0.04)}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-[14px] font-bold text-ink">
+                                {condition.label}
+                              </p>
+                              <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate">
+                                Rank {index + 1}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-mono text-[18px] font-bold text-ink">
+                                {condition.count}
+                              </p>
+                              <p className="font-mono text-[11px] font-semibold text-slate">
+                                {percent}%
+                              </p>
+                            </div>
+                          </div>
+                          <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r"
+                              style={{
+                                backgroundImage: `linear-gradient(90deg, ${color}, ${color}99)`,
+                                width: `${Math.max(8, Math.round((condition.count / conditionPeak) * 100))}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               )}
             </DashboardPanel>
@@ -811,36 +1271,88 @@ export function DoctorDashboard() {
         ) : null}
 
         {appointmentsEnabled ? (
-          <DashboardPanel bodyClassName="p-5" title="My Cases - Last 7 Days">
+          <DashboardPanel bodyClassName="p-0" title="My Cases - Last 7 Days">
             {isLoading ? (
-              <div className="h-[180px] rounded-control bg-mist p-4">
+              <div className="m-5 h-[260px] rounded-[24px] bg-mist p-4">
                 <div className="h-full animate-shimmer rounded-control bg-gradient-to-r from-hairline via-canvas to-hairline bg-[length:200%_100%]" />
               </div>
             ) : casesChartData.length < 2 ? (
               <DashboardEmptyState title="Not enough data yet" />
             ) : (
-              <div className="h-[180px]">
-                <ResponsiveContainer height="100%" width="100%">
-                  <BarChart data={casesChartData} margin={{ bottom: 0, left: -18, right: 8, top: 8 }}>
-                    <CartesianGrid stroke="#E4E8EB" strokeDasharray="4 4" vertical={false} />
-                    <XAxis
-                      axisLine={false}
-                      dataKey="day"
-                      tick={{ fill: '#5B6472', fontFamily: 'JetBrains Mono', fontSize: 10 }}
-                      tickLine={false}
-                      tickMargin={10}
-                    />
-                    <YAxis
-                      allowDecimals={false}
-                      axisLine={false}
-                      tick={{ fill: '#5B6472', fontFamily: 'JetBrains Mono', fontSize: 10 }}
-                      tickLine={false}
-                      tickMargin={8}
-                    />
-                    <Tooltip content={<CasesTooltip />} cursor={{ fill: '#EEF2FF55' }} />
-                    <Bar dataKey="count" fill="#EEF2FF" radius={[4, 4, 0, 0]} stroke="#4338CA" />
-                  </BarChart>
-                </ResponsiveContainer>
+              <div className="analytics-surface overflow-hidden p-5">
+                <div className="relative flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-slate">
+                      Case momentum
+                    </p>
+                    <p className="mt-2 text-[34px] font-bold leading-none tracking-[-0.04em] text-ink">
+                      {weeklyCasesTotal}
+                    </p>
+                    <p className="mt-1 text-[12px] font-medium text-slate">
+                      completed cases this week
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-[#FFF7ED] px-3 py-1.5 font-mono text-[11px] font-bold text-[#C2410C]">
+                    Peak {bestCaseDay?.day || '-'}
+                  </span>
+                </div>
+
+                <div className="relative mt-5 h-[220px]">
+                  <ResponsiveContainer height="100%" width="100%">
+                    <ComposedChart data={casesChartData} margin={{ bottom: 0, left: -18, right: 8, top: 8 }}>
+                      <defs>
+                        <linearGradient id="doctorCasesBarGradient" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="#7C3AED" />
+                          <stop offset="100%" stopColor="#4338CA" />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid stroke="#E4E8EB" strokeDasharray="4 7" vertical={false} />
+                      <XAxis
+                        axisLine={false}
+                        dataKey="day"
+                        tick={{ fill: '#5B6472', fontFamily: 'JetBrains Mono', fontSize: 10 }}
+                        tickLine={false}
+                        tickMargin={12}
+                      />
+                      <YAxis
+                        allowDecimals={false}
+                        axisLine={false}
+                        tick={{ fill: '#5B6472', fontFamily: 'JetBrains Mono', fontSize: 10 }}
+                        tickLine={false}
+                        tickMargin={8}
+                      />
+                      <Tooltip content={<DashboardChartTooltip />} cursor={{ fill: '#EEF2FF55' }} />
+                      <ReferenceLine
+                        y={averageCases}
+                        stroke="#F59E0B"
+                        strokeDasharray="6 3"
+                        label={{
+                          value: `Avg ${averageCases}`,
+                          fill: '#F59E0B',
+                          fontSize: 10,
+                          fontFamily: 'JetBrains Mono',
+                        }}
+                      />
+                      <Bar
+                        background={{ fill: '#EEF2F7', radius: 8 }}
+                        barSize={28}
+                        dataKey="count"
+                        fill="url(#doctorCasesBarGradient)"
+                        name="Daily cases"
+                        radius={[10, 10, 6, 6]}
+                      />
+                      <Line
+                        dataKey="avg"
+                        dot={false}
+                        name="Average"
+                        stroke="#F59E0B"
+                        strokeDasharray="6 3"
+                        strokeWidth={2}
+                        type="monotone"
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             )}
           </DashboardPanel>

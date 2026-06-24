@@ -6,19 +6,19 @@ import { useNavigate, useParams } from 'react-router-dom'
 import DoctorFormFields from '@features/doctors/components/DoctorFormFields'
 import SkeletonRow from '@shared/components/SkeletonRow'
 import { useToast } from '@shared/components/Toast'
-import { useAuth } from '@shared/context/AuthContext'
-import { canEditDoctor } from '@shared/lib/permissions'
 import { getBackendError } from '@shared/lib/records'
+import { usePermission } from '@shared/lib/usePermission'
 import { validatePhone } from '@shared/lib/validation'
 import { getDoctorById, updateDoctor } from '@shared/services/api'
 
 const TOUCHED_ALL = {
   email: true,
   experience_years: true,
-  full_name: true,
+  first_name: true,
   join_date: true,
+  last_name: true,
   phone: true,
-  qualification: true,
+  qualifications: true,
   shift_end: true,
   shift_start: true,
   specializations: true,
@@ -27,13 +27,18 @@ const TOUCHED_ALL = {
 
 function validateDoctorForm(data) {
   const errors = {}
-  const trimmedName = String(data.full_name || '').trim()
+  const firstName = String(data.first_name || '').trim()
+  const lastName = String(data.last_name || '').trim()
   const trimmedEmail = String(data.email || '').trim()
   const phoneError = validatePhone(data.phone)
   const experience = Number(data.experience_years)
 
-  if (trimmedName.length < 2) {
-    errors.full_name = 'Name must be at least 2 characters'
+  if (!firstName) {
+    errors.first_name = 'First name is required'
+  }
+
+  if (!lastName) {
+    errors.last_name = 'Last name is required'
   }
 
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
@@ -44,8 +49,8 @@ function validateDoctorForm(data) {
     errors.phone = phoneError
   }
 
-  if (!String(data.qualification || '').trim()) {
-    errors.qualification = 'Qualification is required'
+  if (!data.qualifications?.length) {
+    errors.qualifications = 'At least one qualification is required'
   }
 
   if (!data.specializations?.length) {
@@ -66,8 +71,8 @@ function validateDoctorForm(data) {
     errors.shift_end = 'Shift end time is required'
   }
 
-  if (data.shift_start && data.shift_end && data.shift_end <= data.shift_start) {
-    errors.shift_end = 'End time must be after start time'
+  if (data.shift_start && data.shift_end && data.shift_end === data.shift_start) {
+    errors.shift_end = 'End time must be different from start time'
   }
 
   if (!data.status) {
@@ -84,13 +89,24 @@ function validateDoctorForm(data) {
 }
 
 function mapDoctorToForm(doctor) {
+  const fullNameParts = String(doctor.full_name || '').trim().split(' ').filter(Boolean)
+
   return {
     email: doctor.email || '',
     experience_years: doctor.experience_years ?? 0,
-    full_name: doctor.full_name || '',
+    first_name: doctor.first_name || fullNameParts[0] || '',
+    last_name: doctor.last_name || fullNameParts.slice(1).join(' ') || '',
     join_date: doctor.join_date || '',
     phone: doctor.phone || '',
-    qualification: doctor.qualification || '',
+    qualifications: Array.isArray(doctor.qualifications)
+      ? doctor.qualifications
+      : String(doctor.qualification || '')
+          .split(',')
+          .map((name, index) => ({
+            id: `legacy-${index}-${name.trim()}`,
+            name: name.trim(),
+          }))
+          .filter((qualification) => qualification.name),
     shift_end: doctor.shift_end || '17:00',
     shift_start: doctor.shift_start || '09:00',
     specializations: doctor.specializations || [],
@@ -100,13 +116,20 @@ function mapDoctorToForm(doctor) {
 
 function prepareDoctorPayload(data) {
   return {
-    ...data,
     email: String(data.email || '').trim(),
     experience_years: Number(data.experience_years),
-    full_name: String(data.full_name || '').trim(),
+    first_name: String(data.first_name || '').trim(),
+    last_name: String(data.last_name || '').trim(),
     phone: String(data.phone || '').trim(),
-    qualification: String(data.qualification || '').trim(),
+    qualification_ids: data.qualifications
+      .map((item) => item.id)
+      .filter((id) => Number.isFinite(Number(id)))
+      .map(Number),
     specializations: data.specializations.map((item) => item.trim()),
+    shift_end: data.shift_end,
+    shift_start: data.shift_start,
+    status: data.status,
+    join_date: data.join_date,
   }
 }
 
@@ -114,7 +137,7 @@ export function EditDoctor() {
   const navigate = useNavigate()
   const { id } = useParams()
   const toast = useToast()
-  const { user } = useAuth()
+  const { isAdmin } = usePermission()
   const [data, setData] = useState(null)
   const [errors, setErrors] = useState({})
   const [touched, setTouched] = useState({})
@@ -122,10 +145,10 @@ export function EditDoctor() {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
-    if (!canEditDoctor(user)) {
+    if (!isAdmin) {
       navigate(`/doctors/${id}`, { replace: true })
     }
-  }, [id, navigate, user])
+  }, [id, isAdmin, navigate])
 
   useEffect(() => {
     let mounted = true

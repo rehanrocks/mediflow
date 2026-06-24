@@ -96,7 +96,7 @@ export function AppointmentFields({
           <option value="">Select doctor</option>
           {doctors.map((doctor) => (
             <option key={getRecordId(doctor)} value={getRecordId(doctor)}>
-              {getDoctorName(doctor, 'Unnamed doctor')}
+              {getDoctorName(doctor)}
             </option>
           ))}
         </select>

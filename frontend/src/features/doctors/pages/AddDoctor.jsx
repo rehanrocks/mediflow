@@ -5,17 +5,17 @@ import { useNavigate } from 'react-router-dom'
 
 import DoctorFormFields from '@features/doctors/components/DoctorFormFields'
 import { useToast } from '@shared/components/Toast'
-import { useAuth } from '@shared/context/AuthContext'
-import { canAddDoctor } from '@shared/lib/permissions'
 import { getBackendError } from '@shared/lib/records'
+import { usePermission } from '@shared/lib/usePermission'
 import { validatePhone } from '@shared/lib/validation'
 import { createDoctor } from '@shared/services/api'
 
 const INITIAL_FORM_DATA = {
-  full_name: '',
+  first_name: '',
+  last_name: '',
   email: '',
   phone: '',
-  qualification: '',
+  qualifications: [],
   specializations: [],
   experience_years: 0,
   shift_start: '09:00',
@@ -27,10 +27,11 @@ const INITIAL_FORM_DATA = {
 const TOUCHED_ALL = {
   email: true,
   experience_years: true,
-  full_name: true,
+  first_name: true,
   join_date: true,
+  last_name: true,
   phone: true,
-  qualification: true,
+  qualifications: true,
   shift_end: true,
   shift_start: true,
   specializations: true,
@@ -39,13 +40,18 @@ const TOUCHED_ALL = {
 
 function validateDoctorForm(data) {
   const errors = {}
-  const trimmedName = String(data.full_name || '').trim()
+  const firstName = String(data.first_name || '').trim()
+  const lastName = String(data.last_name || '').trim()
   const trimmedEmail = String(data.email || '').trim()
   const phoneError = validatePhone(data.phone)
   const experience = Number(data.experience_years)
 
-  if (trimmedName.length < 2) {
-    errors.full_name = 'Name must be at least 2 characters'
+  if (!firstName) {
+    errors.first_name = 'First name is required'
+  }
+
+  if (!lastName) {
+    errors.last_name = 'Last name is required'
   }
 
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
@@ -56,8 +62,8 @@ function validateDoctorForm(data) {
     errors.phone = phoneError
   }
 
-  if (!String(data.qualification || '').trim()) {
-    errors.qualification = 'Qualification is required'
+  if (!data.qualifications?.length) {
+    errors.qualifications = 'At least one qualification is required'
   }
 
   if (!data.specializations?.length) {
@@ -78,8 +84,8 @@ function validateDoctorForm(data) {
     errors.shift_end = 'Shift end time is required'
   }
 
-  if (data.shift_start && data.shift_end && data.shift_end <= data.shift_start) {
-    errors.shift_end = 'End time must be after start time'
+  if (data.shift_start && data.shift_end && data.shift_end === data.shift_start) {
+    errors.shift_end = 'End time must be different from start time'
   }
 
   if (!data.status) {
@@ -97,30 +103,34 @@ function validateDoctorForm(data) {
 
 function prepareDoctorPayload(data) {
   return {
-    ...data,
     email: String(data.email || '').trim(),
     experience_years: Number(data.experience_years),
-    full_name: String(data.full_name || '').trim(),
+    first_name: String(data.first_name || '').trim(),
+    last_name: String(data.last_name || '').trim(),
     phone: String(data.phone || '').trim(),
-    qualification: String(data.qualification || '').trim(),
+    qualification_ids: data.qualifications.map((item) => item.id),
     specializations: data.specializations.map((item) => item.trim()),
+    shift_end: data.shift_end,
+    shift_start: data.shift_start,
+    status: data.status,
+    join_date: data.join_date,
   }
 }
 
 export function AddDoctor() {
   const navigate = useNavigate()
   const toast = useToast()
-  const { user } = useAuth()
+  const { canWrite } = usePermission()
   const [data, setData] = useState(INITIAL_FORM_DATA)
   const [errors, setErrors] = useState({})
   const [touched, setTouched] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
-    if (!canAddDoctor(user)) {
+    if (!canWrite('doctors')) {
       navigate('/not-available', { replace: true })
     }
-  }, [navigate, user])
+  }, [canWrite, navigate])
 
   function handleChange(event) {
     const { name, value } = event.target

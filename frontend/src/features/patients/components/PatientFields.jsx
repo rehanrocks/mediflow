@@ -1,7 +1,8 @@
 /* eslint-disable react-refresh/only-export-components -- Shares patient form helpers with route pages. */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { computeAge } from '@shared/lib/age'
+import { checkDuplicatePatient } from '@shared/lib/duplicateCheck'
 import {
   getRecordId,
   normalizeList,
@@ -140,26 +141,76 @@ export function PatientFields({
   clearErrors,
   currentPatientId,
   errors,
+  onDuplicateFound,
   register,
   setError,
   setValue,
   watch,
 }) {
   const [checkingPhone, setCheckingPhone] = useState(false)
+  const duplicateTouchedRef = useRef({ name: false, phone: false })
   const dob = watch('date_of_birth')
   const age = computeAge(dob)
   const phoneError = errors.phone?.message
+  const nameRegistration = register('full_name', {
+    required: 'Full name is required.',
+    minLength: {
+      value: 2,
+      message: 'Full name must be at least 2 characters.',
+    },
+  })
   const phoneRegistration = register('phone', {
     required: 'Phone is required.',
     validate: (value) => validatePhone(value) || true,
   })
 
+  async function maybeCheckDuplicatePatient() {
+    if (!onDuplicateFound) {
+      return
+    }
+
+    if (!duplicateTouchedRef.current.name || !duplicateTouchedRef.current.phone) {
+      return
+    }
+
+    const fullName = watch('full_name')
+    const phone = String(watch('phone') || '').trim()
+
+    if (!String(fullName || '').trim() || !phone || validatePhone(phone)) {
+      return
+    }
+
+    setCheckingPhone(true)
+
+    try {
+      const duplicate = await checkDuplicatePatient(fullName, phone, getPatients)
+
+      if (duplicate) {
+        onDuplicateFound(duplicate)
+      }
+    } finally {
+      setCheckingPhone(false)
+    }
+  }
+
+  function handleNameBlur(event) {
+    nameRegistration.onBlur(event)
+    duplicateTouchedRef.current.name = true
+    maybeCheckDuplicatePatient()
+  }
+
   async function handlePhoneBlur(event) {
     phoneRegistration.onBlur(event)
+    duplicateTouchedRef.current.phone = true
     const value = event.target.value.trim()
     const formatError = validatePhone(value)
 
     if (!value || formatError) {
+      return
+    }
+
+    if (onDuplicateFound) {
+      await maybeCheckDuplicatePatient()
       return
     }
 
@@ -202,13 +253,8 @@ export function PatientFields({
             className={getFieldClass(errors.full_name?.message)}
             placeholder="Patient full name"
             type="text"
-            {...register('full_name', {
-              required: 'Full name is required.',
-              minLength: {
-                value: 2,
-                message: 'Full name must be at least 2 characters.',
-              },
-            })}
+            {...nameRegistration}
+            onBlur={handleNameBlur}
           />
         </FormField>
 

@@ -14,12 +14,12 @@ import {
   EMPTY_PATIENT_FORM,
   PatientFields,
   toPatientPayload,
-  validateUniquePatientPhone,
 } from '@features/patients/components/PatientFields'
+import DuplicatePatientModal from '@features/patients/components/DuplicatePatientModal'
 import PatientSummaryPanel from '@features/patients/components/PatientSummaryPanel'
 import { useToast } from '@shared/components/Toast'
-import { useAuth } from '@shared/context/AuthContext'
-import { canBookAppointment } from '@shared/lib/permissions'
+import { checkDuplicatePatient } from '@shared/lib/duplicateCheck'
+import { usePermission } from '@shared/lib/usePermission'
 import {
   getBackendError,
   getPatientAge,
@@ -46,7 +46,7 @@ const PATIENT_MODE_OPTIONS = [
 ]
 
 export function AppointmentBooking() {
-  const { user } = useAuth()
+  const { canWrite } = usePermission()
   const toast = useToast()
   const navigate = useNavigate()
   const [patientMode, setPatientMode] = useState('existing')
@@ -57,6 +57,7 @@ export function AppointmentBooking() {
   const [doctors, setDoctors] = useState([])
   const [formError, setFormError] = useState('')
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false)
+  const [duplicatePatient, setDuplicatePatient] = useState(null)
 
   const appointmentForm = useForm({
     defaultValues: EMPTY_APPOINTMENT_FORM,
@@ -132,7 +133,7 @@ export function AppointmentBooking() {
     [patientMode, patientResults.length, selectedPatient],
   )
 
-  if (!canBookAppointment(user)) {
+  if (!canWrite('appointments')) {
     return <Navigate replace to="/appointments" />
   }
 
@@ -157,16 +158,13 @@ export function AppointmentBooking() {
         }
 
         const patientValues = patientForm.getValues()
-        const duplicatePhoneError = await validateUniquePatientPhone(
+        const duplicate = await checkDuplicatePatient(
+          patientValues.full_name,
           patientValues.phone,
+          getPatients,
         )
-
-        if (duplicatePhoneError) {
-          patientForm.setError('phone', {
-            type: 'manual',
-            message: duplicatePhoneError,
-          })
-          setFormError(duplicatePhoneError)
+        if (duplicate) {
+          setDuplicatePatient(duplicate)
           return
         }
 
@@ -195,6 +193,25 @@ export function AppointmentBooking() {
     setPatientSearch(`${getPatientName(patient)} ${patient.phone || ''}`.trim())
     setPatientResults([])
     setIsSearchingPatients(false)
+  }
+
+  function handleDuplicateFound(duplicate) {
+    setDuplicatePatient(duplicate)
+  }
+
+  function handleDuplicateCancel() {
+    setDuplicatePatient(null)
+    patientForm.setValue('full_name', '', {
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: true,
+    })
+    patientForm.setValue('phone', '', {
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: true,
+    })
+    patientForm.clearErrors(['full_name', 'phone'])
   }
 
   return (
@@ -332,6 +349,7 @@ export function AppointmentBooking() {
                 clearErrors={patientForm.clearErrors}
                 currentPatientId={null}
                 errors={patientForm.formState.errors}
+                onDuplicateFound={handleDuplicateFound}
                 register={patientForm.register}
                 setError={patientForm.setError}
                 setValue={patientForm.setValue}
@@ -376,6 +394,18 @@ export function AppointmentBooking() {
           </button>
         </div>
       </form>
+
+      {duplicatePatient ? (
+        <DuplicatePatientModal
+          onCancel={handleDuplicateCancel}
+          onViewProfile={() => {
+            setDuplicatePatient(null)
+            setPatientMode('existing')
+            selectPatient(duplicatePatient)
+          }}
+          patient={duplicatePatient}
+        />
+      ) : null}
     </div>
   )
 }

@@ -1,6 +1,8 @@
 /* src/features/doctors/components/CaseTypeBreakdown.jsx - Donut chart for case types. */
 import { PieChart as PieChartIcon } from 'lucide-react'
-import { Cell, Pie, PieChart, ResponsiveContainer } from 'recharts'
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
+
+import DarkTooltip from '@shared/components/charts/DarkTooltip'
 
 const CASE_TYPE_COLORS = [
   '#4338CA',
@@ -41,13 +43,14 @@ export function CaseTypeBreakdown({ caseTypesData = [] }) {
       <div className="relative mt-2 h-[200px] min-w-0">
         <ResponsiveContainer height="100%" minHeight={1} minWidth={1} width="100%">
           <PieChart>
+            <Tooltip content={<DarkTooltip />} />
             <Pie
               data={chartData}
               dataKey="count"
-              innerRadius={55}
+              innerRadius={70}
               label={false}
               labelLine={false}
-              outerRadius={85}
+              outerRadius={90}
               paddingAngle={2}
             >
               {chartData.map((item, index) => (
@@ -65,7 +68,7 @@ export function CaseTypeBreakdown({ caseTypesData = [] }) {
           <span className="font-mono text-[20px] font-semibold text-ink">
             {total}
           </span>
-          <span className="text-[11px] text-slate">Total</span>
+          <span className="text-[11px] text-slate">Cases</span>
         </div>
       </div>
 

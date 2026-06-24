@@ -1,18 +1,136 @@
 /* src/features/staff/components/StaffFormFields.jsx - Shared staff form controls. */
+import { useMemo, useState } from 'react'
+
 import {
+  FieldError,
   FormField,
   FormSection,
   getFieldClass,
 } from '@shared/components/FormPrimitives'
+import { getStaffJoiningDateWarning } from '@shared/lib/staffUtils'
+
+const OTHER_ROLE_VALUE = '__other__'
 
 export function StaffFormFields({
   data,
   errors = {},
   onBlur,
   onChange,
+  roleOptions,
+  roleOptionsFailed = false,
   showStatus = true,
   touched = {},
 }) {
+  const [showCustomRole, setShowCustomRole] = useState(false)
+  const roleValue = String(data.role || '')
+  const joinDateWarning = !errors.joining_date
+    ? getStaffJoiningDateWarning(data.joining_date)
+    : ''
+  const matchedRoleName = useMemo(() => {
+    if (!Array.isArray(roleOptions)) {
+      return ''
+    }
+
+    return roleOptions.find((role) => role.name === roleValue)?.name || ''
+  }, [roleOptions, roleValue])
+  const usingCustomRole =
+    showCustomRole ||
+    (Array.isArray(roleOptions) && Boolean(roleValue) && !matchedRoleName)
+
+  function emitRoleChange(value) {
+    onChange({
+      target: {
+        name: 'role',
+        value,
+      },
+    })
+  }
+
+  function handleRoleSelect(event) {
+    const nextValue = event.target.value
+
+    if (nextValue === OTHER_ROLE_VALUE) {
+      setShowCustomRole(true)
+
+      if (matchedRoleName) {
+        emitRoleChange('')
+      }
+
+      return
+    }
+
+    setShowCustomRole(false)
+    emitRoleChange(nextValue)
+  }
+
+  function renderRoleControl() {
+    if (roleOptions === null && !roleOptionsFailed) {
+      return (
+        <select
+          className={getFieldClass('', 'text-slate')}
+          disabled
+          name="role"
+          value=""
+        >
+          <option value="">Loading roles...</option>
+        </select>
+      )
+    }
+
+    if (roleOptionsFailed || roleOptions === undefined) {
+      return (
+        <>
+          <input
+            className={getFieldClass(touched.role ? errors.role : '')}
+            name="role"
+            onBlur={onBlur}
+            onChange={onChange}
+            placeholder="e.g. Nurse, Ward Boy, Sweeper, Security Guard..."
+            type="text"
+            value={data.role}
+          />
+          {roleOptionsFailed ? (
+            <p className="mt-1.5 text-[12px] text-slate">
+              Could not load role suggestions.
+            </p>
+          ) : null}
+        </>
+      )
+    }
+
+    return (
+      <div className="space-y-2">
+        <select
+          className={getFieldClass(touched.role ? errors.role : '')}
+          name="role"
+          onBlur={onBlur}
+          onChange={handleRoleSelect}
+          value={usingCustomRole ? OTHER_ROLE_VALUE : matchedRoleName}
+        >
+          <option value="">Select a role...</option>
+          {roleOptions.map((role) => (
+            <option key={role.id || role.slug || role.name} value={role.name}>
+              {role.name}
+            </option>
+          ))}
+          <option value={OTHER_ROLE_VALUE}>Other...</option>
+        </select>
+
+        {usingCustomRole ? (
+          <input
+            className={getFieldClass(touched.role ? errors.role : '')}
+            name="role"
+            onBlur={onBlur}
+            onChange={onChange}
+            placeholder="Type custom role title..."
+            type="text"
+            value={data.role}
+          />
+        ) : null}
+      </div>
+    )
+  }
+
   return (
     <>
       <FormSection title="Personal Details">
@@ -87,18 +205,10 @@ export function StaffFormFields({
       <FormSection title="Employment Details">
         <FormField
           error={touched.role ? errors.role : ''}
-          hint="Type any role title as needed - this field is flexible."
+          hint="You can select an existing role or type a custom one."
           label="Role"
         >
-          <input
-            className={getFieldClass(touched.role ? errors.role : '')}
-            name="role"
-            onBlur={onBlur}
-            onChange={onChange}
-            placeholder="e.g. Nurse, Ward Boy, Sweeper, Security Guard..."
-            type="text"
-            value={data.role}
-          />
+          {renderRoleControl()}
         </FormField>
 
         <FormField
@@ -113,6 +223,7 @@ export function StaffFormFields({
             type="date"
             value={data.joining_date}
           />
+          <FieldError tone="warning">{joinDateWarning}</FieldError>
         </FormField>
 
         {showStatus ? (
@@ -129,6 +240,39 @@ export function StaffFormFields({
             </select>
           </FormField>
         ) : null}
+      </FormSection>
+
+      <FormSection title="Working Hours">
+        <FormField
+          error={touched.shift_start ? errors.shift_start : ''}
+          label="Shift Start"
+        >
+          <input
+            className={getFieldClass(touched.shift_start ? errors.shift_start : '')}
+            name="shift_start"
+            onBlur={onBlur}
+            onChange={onChange}
+            type="time"
+            value={data.shift_start}
+          />
+        </FormField>
+
+        <FormField
+          error={touched.shift_end ? errors.shift_end : ''}
+          label="Shift End"
+        >
+          <input
+            className={getFieldClass(touched.shift_end ? errors.shift_end : '')}
+            name="shift_end"
+            onBlur={onBlur}
+            onChange={onChange}
+            type="time"
+            value={data.shift_end}
+          />
+        </FormField>
+      </FormSection>
+
+      <FormSection title="Notes">
         <div className="md:col-span-2">
           <FormField
             error={touched.notes ? errors.notes : ''}

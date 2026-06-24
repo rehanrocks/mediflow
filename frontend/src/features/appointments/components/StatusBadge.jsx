@@ -25,7 +25,7 @@ export function StatusBadge({ status = 'scheduled' }) {
   return (
     <span
       className={[
-        'inline-flex items-center gap-1.5 rounded-full border-2 px-2.5 py-1 font-mono text-[11px] font-medium uppercase leading-none tracking-wide transition-all duration-200',
+        'inline-flex items-center gap-1.5 rounded-full border-2 px-2.5 py-1 font-sans text-[11px] font-semibold uppercase leading-none tracking-wide transition-all duration-200',
         statusClass,
       ].join(' ')}
     >

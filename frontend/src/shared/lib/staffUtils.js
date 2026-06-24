@@ -1,7 +1,6 @@
 /* src/shared/lib/staffUtils.js - Utility functions for staff records. */
 
 const DAY_MS = 1000 * 60 * 60 * 24
-const YEAR_DAYS = 365.25
 
 export const STAFF_MIN_AGE = 18
 export const STAFF_MAX_AGE = 60
@@ -31,7 +30,6 @@ export function getStaffAgeError(ageValue) {
 }
 
 export function getStaffJoiningDateError(ageValue, joiningDateString) {
-  const ageError = getStaffAgeError(ageValue)
   const joined = parseDate(joiningDateString)
   const today = startOfDay(new Date())
 
@@ -47,15 +45,21 @@ export function getStaffJoiningDateError(ageValue, joiningDateString) {
     return 'Joining date cannot be in the future'
   }
 
-  if (ageError) {
+  return ''
+}
+
+export function getStaffJoiningDateWarning(joiningDateString) {
+  const joined = parseDate(joiningDateString)
+
+  if (!joined) {
     return ''
   }
 
-  const age = Number.parseInt(ageValue, 10)
-  const tenureYears = (today - startOfDay(joined)) / (DAY_MS * YEAR_DAYS)
+  const sixtyYearsAgo = new Date()
+  sixtyYearsAgo.setFullYear(sixtyYearsAgo.getFullYear() - 60)
 
-  if (tenureYears > age - (STAFF_MIN_AGE - 1)) {
-    return 'Joining date is not consistent with age'
+  if (startOfDay(joined) < startOfDay(sixtyYearsAgo)) {
+    return 'Join date is over 60 years ago - please verify'
   }
 
   return ''
@@ -123,5 +127,25 @@ export function extractUniqueRoles(staffArray) {
     return []
   }
 
-  return [...new Set(staffArray.map((staff) => staff.role).filter(Boolean))].sort()
+  const seen = new Set()
+
+  return staffArray
+    .map((staff) => String(staff.role || '').trim())
+    .filter((role) => {
+      const key = role.toLowerCase()
+
+      if (!role || seen.has(key)) {
+        return false
+      }
+
+      seen.add(key)
+      return true
+    })
+    .map((role) =>
+      role
+        .split(/\s+/)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' '),
+    )
+    .sort()
 }

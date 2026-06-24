@@ -7,7 +7,7 @@ import PaymentBadge from '../components/PaymentBadge'
 import PatientSummaryPanel from '@features/patients/components/PatientSummaryPanel'
 import SkeletonRow from '@shared/components/SkeletonRow'
 import StatusBadge from '../components/StatusBadge'
-import { useAuth } from '@shared/context/AuthContext'
+import { usePermission } from '@shared/lib/usePermission'
 import {
   formatDateTime,
   getAppointmentDoctorName,
@@ -17,7 +17,6 @@ import {
   getVitalsText,
   normalizeList,
 } from '@shared/lib/records'
-import { canEditAppointment } from '@shared/lib/permissions'
 import {
   getAppointment,
   getDoctors,
@@ -30,9 +29,9 @@ function getEmbeddedAppointmentPatient(appointment) {
 
 export function AppointmentView() {
   const { id } = useParams()
-  const { user } = useAuth()
+  const { canWrite } = usePermission()
   const navigate = useNavigate()
-  const canEdit = canEditAppointment(user)
+  const canEdit = canWrite('appointments')
   const [appointment, setAppointment] = useState(null)
   const [patient, setPatient] = useState(null)
   const [doctors, setDoctors] = useState([])

@@ -4,11 +4,16 @@ import {
   getStatusTransitionMessage,
   normalizeAppointmentStatus,
 } from './appointmentStatus'
+import { ensureDemoRoleName } from './accessControlData'
 import { computeAge } from './age'
 import { getStaffDataIssues } from './staffUtils'
-import { getPublicTestingUser } from './testingAccess'
+import {
+  getPublicTestingSession,
+  getPublicTestingUser,
+  PUBLIC_ROUTES_FOR_TESTING,
+} from './testingAccess'
 
-const DEMO_STORAGE_KEY = 'mediflow_demo_data_v6'
+const DEMO_STORAGE_KEY = 'mediflow_demo_data_v7'
 
 const PATIENTS = [
   {
@@ -135,6 +140,7 @@ const DOCTORS = [
       'ENT',
     ],
     join_date: '2018-03-15',
+    created_at: '2024-01-08T09:00:00.000Z',
     shift_start: '09:00',
     shift_end: '17:00',
     today_checkin: addDays(0, 8, 42),
@@ -164,6 +170,7 @@ const DOCTORS = [
       'Psychiatry',
     ],
     join_date: '2014-07-20',
+    created_at: '2024-01-12T09:00:00.000Z',
     shift_start: '08:00',
     shift_end: '16:00',
     today_checkin: addDays(0, 7, 55),
@@ -193,6 +200,7 @@ const DOCTORS = [
       'Ophthalmology',
     ],
     join_date: '2020-01-10',
+    created_at: '2024-02-05T09:00:00.000Z',
     shift_start: '10:00',
     shift_end: '18:00',
     today_checkin: null,
@@ -205,6 +213,14 @@ const DOCTORS = [
   },
 ]
 
+const QUALIFICATIONS = [
+  { id: 1, name: 'MD - Orthopedic Surgery' },
+  { id: 2, name: 'MD - Cardiology' },
+  { id: 3, name: 'MD - Pediatrics' },
+  { id: 4, name: 'MBBS' },
+  { id: 5, name: 'FCPS' },
+]
+
 const STAFF = [
   {
     id: 401,
@@ -215,6 +231,8 @@ const STAFF = [
     role: 'Reception Desk',
     status: 'active',
     joining_date: '2021-05-17',
+    shift_start: '09:00',
+    shift_end: '17:00',
     created_at: '2024-01-10T09:15:00.000Z',
     notes: 'Handles front desk intake and appointment coordination.',
   },
@@ -227,6 +245,8 @@ const STAFF = [
     role: 'Ward Boy',
     status: 'active',
     joining_date: '2020-11-02',
+    shift_start: '08:00',
+    shift_end: '16:00',
     created_at: '2024-01-12T10:30:00.000Z',
     notes: 'Assigned to patient movement and ward support.',
   },
@@ -239,6 +259,8 @@ const STAFF = [
     role: 'Nurse',
     status: 'active',
     joining_date: '2023-08-21',
+    shift_start: '10:00',
+    shift_end: '18:00',
     created_at: '2024-02-03T11:45:00.000Z',
     notes: 'Supports vitals collection before consultations.',
   },
@@ -251,6 +273,8 @@ const STAFF = [
     role: 'Cleaner',
     status: 'inactive',
     joining_date: '2022-02-14',
+    shift_start: '07:00',
+    shift_end: '15:00',
     created_at: '2024-03-08T08:05:00.000Z',
     notes: null,
   },
@@ -271,19 +295,145 @@ function withPatientDefaults(patient) {
   }
 }
 
-function withDoctorDefaults(doctor) {
+function splitQualificationNames(value) {
+  if (!value) {
+    return []
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'object' ? item.name : item))
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+  }
+
+  return String(value)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function normalizeQualificationRecords(records = [], doctors = []) {
+  const seen = new Set()
+  const qualifications = []
+
+  ;[...QUALIFICATIONS, ...records].forEach((qualification) => {
+    const name = String(qualification?.name || qualification || '').trim()
+    const key = name.toLowerCase()
+
+    if (!name || seen.has(key)) {
+      return
+    }
+
+    seen.add(key)
+    qualifications.push({
+      id: Number(qualification?.id) || qualifications.length + 1,
+      name,
+    })
+  })
+
+  doctors.forEach((doctor) => {
+    splitQualificationNames(doctor.qualifications?.length ? doctor.qualifications : doctor.qualification)
+      .forEach((name) => {
+        const key = name.toLowerCase()
+
+        if (!seen.has(key)) {
+          seen.add(key)
+          qualifications.push({
+            id: qualifications.length + 1,
+            name,
+          })
+        }
+      })
+  })
+
+  return qualifications.map((qualification, index) => ({
+    ...qualification,
+    id: Number(qualification.id) || index + 1,
+  }))
+}
+
+function getQualificationObjects(qualifications, value, legacyValue = '') {
+  const ids = Array.isArray(value)
+    ? value
+        .map((item) => (typeof item === 'object' ? item.id : item))
+        .filter((item) => item !== undefined && item !== null)
+    : []
+  const names = Array.isArray(value)
+    ? value
+        .filter((item) => typeof item === 'object' && item.name)
+        .map((item) => item.name)
+    : splitQualificationNames(legacyValue)
+  const selected = []
+
+  ids.forEach((id) => {
+    const match = qualifications.find(
+      (qualification) => String(qualification.id) === String(id),
+    )
+
+    if (match && !selected.some((item) => item.id === match.id)) {
+      selected.push(match)
+    }
+  })
+
+  names.forEach((name) => {
+    const match = qualifications.find(
+      (qualification) =>
+        qualification.name.toLowerCase() === String(name).trim().toLowerCase(),
+    )
+
+    if (match && !selected.some((item) => item.id === match.id)) {
+      selected.push(match)
+    }
+  })
+
+  return selected
+}
+
+function withDoctorDefaults(doctor, qualifications = []) {
+  const firstName = String(doctor.first_name || '').trim()
+  const lastName = String(doctor.last_name || '').trim()
+  const fullName =
+    String(doctor.full_name || '').trim() ||
+    [firstName, lastName].filter(Boolean).join(' ') ||
+    doctor.username ||
+    'Doctor'
+  const selectedQualifications = getQualificationObjects(
+    qualifications,
+    doctor.qualification_ids || doctor.qualifications,
+    doctor.qualification,
+  )
+
   return {
     ...doctor,
+    created_at: doctor.created_at || doctor.join_date || new Date().toISOString(),
+    first_name: firstName || fullName.split(' ')[0] || '',
+    last_name: lastName || fullName.split(' ').slice(1).join(' ') || '',
+    full_name: fullName,
+    qualification: selectedQualifications.map((item) => item.name).join(', ') || doctor.qualification || '',
+    qualifications: selectedQualifications,
     today_checkin:
       doctor.today_checkin === undefined ? null : doctor.today_checkin,
   }
 }
 
 function normalizeDemoData(data) {
+  const qualifications = normalizeQualificationRecords(
+    data.qualifications,
+    data.doctors || DOCTORS,
+  )
+
   return {
     patients: (data.patients || []).map(withPatientDefaults),
-    doctors: (data.doctors || []).map(withDoctorDefaults),
-    staff: Array.isArray(data.staff) ? data.staff : STAFF,
+    doctors: (data.doctors || []).map((doctor) =>
+      withDoctorDefaults(doctor, qualifications),
+    ),
+    qualifications,
+    staff: (Array.isArray(data.staff) ? data.staff : STAFF).map((staffMember) => ({
+      ...staffMember,
+      shift_start: staffMember.shift_start ?? null,
+      shift_end: staffMember.shift_end ?? null,
+    })),
     appointments: Array.isArray(data.appointments) ? data.appointments : [],
   }
 }
@@ -535,6 +685,7 @@ function createInitialDemoData() {
   return normalizeDemoData({
     patients: PATIENTS,
     doctors: DOCTORS,
+    qualifications: QUALIFICATIONS,
     staff: STAFF,
     appointments: createSeedAppointments(),
   })
@@ -612,6 +763,31 @@ function getDate(appointment) {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
+function sortAppointmentsByOrdering(appointments, ordering) {
+  if (ordering === '-appointment_dt') {
+    return [...appointments].sort((first, second) => getDate(second) - getDate(first))
+  }
+
+  if (ordering !== 'appointment_dt') {
+    return appointments
+  }
+
+  const now = new Date()
+
+  return [...appointments].sort((first, second) => {
+    const firstDate = getDate(first)
+    const secondDate = getDate(second)
+    const firstUpcoming = firstDate && firstDate >= now
+    const secondUpcoming = secondDate && secondDate >= now
+
+    if (firstUpcoming !== secondUpcoming) {
+      return firstUpcoming ? -1 : 1
+    }
+
+    return firstUpcoming ? firstDate - secondDate : secondDate - firstDate
+  })
+}
+
 function getDateKey(value) {
   const date = new Date(value)
 
@@ -627,10 +803,29 @@ function isSameDay(value, reference = new Date()) {
 }
 
 function getStoredDemoUser() {
+  if (PUBLIC_ROUTES_FOR_TESTING) {
+    const session = getPublicTestingSession()
+
+    return session?.user
+      ? {
+          ...session.user,
+          role: session.role?.slug,
+        }
+      : getPublicTestingUser()
+  }
+
   try {
     const storedUser = localStorage.getItem('user')
+    const storedRole = localStorage.getItem('role')
+    const parsedUser = storedUser ? JSON.parse(storedUser) : getPublicTestingUser()
+    const parsedRole = storedRole ? JSON.parse(storedRole) : null
 
-    return storedUser ? JSON.parse(storedUser) : getPublicTestingUser()
+    return parsedUser
+      ? {
+          ...parsedUser,
+          role: parsedRole?.slug ?? parsedUser.role,
+        }
+      : getPublicTestingUser()
   } catch {
     return getPublicTestingUser()
   }
@@ -769,6 +964,47 @@ function normalizeParams(params = '') {
   return params || {}
 }
 
+function buildPagedResponse(items, normalizedParams, basePath) {
+  const hasPageParams =
+    normalizedParams.page !== undefined ||
+    normalizedParams.page_size !== undefined ||
+    normalizedParams.limit !== undefined ||
+    normalizedParams.offset !== undefined
+
+  if (!hasPageParams) {
+    return clone(items)
+  }
+
+  const pageSize = Number(normalizedParams.page_size || normalizedParams.limit || 10)
+  const currentPage = Math.max(Number(normalizedParams.page || 1), 1)
+  const offset =
+    normalizedParams.offset !== undefined
+      ? Number(normalizedParams.offset || 0)
+      : (currentPage - 1) * pageSize
+  const results = items.slice(offset, offset + pageSize)
+  const nextPage = offset + pageSize < items.length ? currentPage + 1 : null
+  const previousPage = offset > 0 ? Math.max(currentPage - 1, 1) : null
+
+  return clone({
+    count: items.length,
+    next: nextPage ? `${basePath}?page=${nextPage}&page_size=${pageSize}` : null,
+    previous: previousPage
+      ? `${basePath}?page=${previousPage}&page_size=${pageSize}`
+      : null,
+    results,
+  })
+}
+
+function compareDateValues(first, second) {
+  const firstDate = new Date(first || '')
+  const secondDate = new Date(second || '')
+
+  return (
+    (Number.isNaN(firstDate.getTime()) ? 0 : firstDate.getTime()) -
+    (Number.isNaN(secondDate.getTime()) ? 0 : secondDate.getTime())
+  )
+}
+
 export function getDemoPatients(params = '') {
   const data = readDemoData()
   const normalizedParams = normalizeParams(params)
@@ -801,7 +1037,18 @@ export function getDemoPatients(params = '') {
     })
   }
 
-  return clone(decoratePatients(data, patients))
+  if (normalizedParams.ordering === '-created_at') {
+    patients = [...patients].sort(
+      (first, second) =>
+        compareDateValues(second.created_at || second.onboarding_date, first.created_at || first.onboarding_date),
+    )
+  }
+
+  return buildPagedResponse(
+    decoratePatients(data, patients),
+    normalizedParams,
+    '/patients/',
+  )
 }
 
 export function getDemoPatient(id) {
@@ -900,8 +1147,6 @@ export function getDemoDoctors(params = {}) {
   const search = String(normalizedParams.search || '').trim().toLowerCase()
   const status = String(normalizedParams.status || '').trim().toLowerCase()
   const specialization = String(normalizedParams.specialization || '').trim()
-  const limit = Number(normalizedParams.limit || 100)
-  const offset = Number(normalizedParams.offset || 0)
   let doctors = data.doctors
     .filter((doctor) => doctor.is_active !== false)
     .map((doctor) => decorateDoctor(data, doctor))
@@ -910,8 +1155,10 @@ export function getDemoDoctors(params = {}) {
     doctors = doctors.filter((doctor) => {
       const searchableText = [
         doctor.full_name,
+        doctor.username,
         doctor.email,
         doctor.qualification,
+        doctor.qualifications?.map((qualification) => qualification.name).join(' '),
         doctor.specializations?.join(' '),
       ]
         .filter(Boolean)
@@ -934,20 +1181,22 @@ export function getDemoDoctors(params = {}) {
     )
   }
 
-  const results = doctors.slice(offset, offset + limit)
+  if (normalizedParams.ordering === '-created_at') {
+    doctors = [...doctors].sort((first, second) =>
+      compareDateValues(
+        second.created_at || second.join_date,
+        first.created_at || first.join_date,
+      ),
+    )
+  } else if (normalizedParams.ordering === 'full_name') {
+    doctors = [...doctors].sort((first, second) =>
+      String(first.full_name || first.username || '').localeCompare(
+        String(second.full_name || second.username || ''),
+      ),
+    )
+  }
 
-  return clone({
-    count: doctors.length,
-    next:
-      offset + limit < doctors.length
-        ? `/doctors/?offset=${offset + limit}&limit=${limit}`
-        : null,
-    previous:
-      offset > 0
-        ? `/doctors/?offset=${Math.max(0, offset - limit)}&limit=${limit}`
-        : null,
-    results,
-  })
+  return buildPagedResponse(doctors, normalizedParams, '/doctors/')
 }
 
 export function getDemoDoctorById(id) {
@@ -968,6 +1217,13 @@ export function createDemoDoctor(doctor) {
   const data = readDemoData()
   const normalizedEmail = String(doctor.email || '').trim().toLowerCase()
   const normalizedPhone = String(doctor.phone || '').trim()
+  const qualifications = getQualificationObjects(
+    data.qualifications,
+    doctor.qualification_ids || doctor.qualifications,
+    doctor.qualification,
+  )
+  const firstName = String(doctor.first_name || '').trim()
+  const lastName = String(doctor.last_name || '').trim()
 
   if (
     data.doctors.some(
@@ -989,9 +1245,20 @@ export function createDemoDoctor(doctor) {
     createDemoError('Phone already registered')
   }
 
+  const createdAt = new Date().toISOString()
   const createdDoctor = {
     ...doctor,
     id: getNextId(data.doctors),
+    created_at: createdAt,
+    first_name: firstName,
+    last_name: lastName,
+    full_name:
+      [firstName, lastName].filter(Boolean).join(' ') ||
+      String(doctor.full_name || '').trim() ||
+      doctor.username ||
+      'Doctor',
+    qualification: qualifications.map((qualification) => qualification.name).join(', '),
+    qualifications,
     today_checkin: null,
     cases_today: 0,
     cases_this_week: 0,
@@ -1012,6 +1279,13 @@ export function updateDemoDoctor(id, doctor) {
   const doctorId = String(id)
   const normalizedEmail = String(doctor.email || '').trim().toLowerCase()
   const normalizedPhone = String(doctor.phone || '').trim()
+  const qualifications = getQualificationObjects(
+    data.qualifications,
+    doctor.qualification_ids || doctor.qualifications,
+    doctor.qualification,
+  )
+  const firstName = String(doctor.first_name || '').trim()
+  const lastName = String(doctor.last_name || '').trim()
 
   if (
     data.doctors.some(
@@ -1045,6 +1319,15 @@ export function updateDemoDoctor(id, doctor) {
     updatedDoctor = {
       ...currentDoctor,
       ...doctor,
+      first_name: firstName,
+      last_name: lastName,
+      full_name:
+        [firstName, lastName].filter(Boolean).join(' ') ||
+        String(doctor.full_name || currentDoctor.full_name || '').trim() ||
+        currentDoctor.username ||
+        'Doctor',
+      qualification: qualifications.map((qualification) => qualification.name).join(', '),
+      qualifications,
     }
 
     return updatedDoctor
@@ -1087,6 +1370,44 @@ export function deleteDemoDoctor(id) {
   return { id }
 }
 
+export function getDemoQualifications() {
+  const data = readDemoData()
+
+  return clone(
+    [...data.qualifications].sort((first, second) =>
+      first.name.localeCompare(second.name),
+    ),
+  )
+}
+
+export function createDemoQualification(name) {
+  const data = readDemoData()
+  const trimmedName = String(name || '').trim()
+
+  if (!trimmedName) {
+    createDemoError('Qualification name is required')
+  }
+
+  const existing = data.qualifications.find(
+    (qualification) =>
+      qualification.name.toLowerCase() === trimmedName.toLowerCase(),
+  )
+
+  if (existing) {
+    return clone(existing)
+  }
+
+  const qualification = {
+    id: getNextId(data.qualifications),
+    name: trimmedName,
+  }
+
+  data.qualifications = [...data.qualifications, qualification]
+  writeDemoData(data)
+
+  return clone(qualification)
+}
+
 export function getDemoStaff(params = {}) {
   const data = readDemoData()
   const normalizedParams = normalizeParams(params)
@@ -1094,8 +1415,6 @@ export function getDemoStaff(params = {}) {
   const phone = String(normalizedParams.phone || '').trim()
   const status = String(normalizedParams.status || '').trim().toLowerCase()
   const role = String(normalizedParams.role || '').trim().toLowerCase()
-  const limit = Number(normalizedParams.limit || 100)
-  const offset = Number(normalizedParams.offset || 0)
   let staff = data.staff.filter((staffMember) => staffMember.is_deleted !== true)
 
   if (search) {
@@ -1134,20 +1453,13 @@ export function getDemoStaff(params = {}) {
     )
   }
 
-  const results = staff.slice(offset, offset + limit)
+  if (normalizedParams.ordering === '-joining_date') {
+    staff = [...staff].sort((first, second) =>
+      compareDateValues(second.joining_date, first.joining_date),
+    )
+  }
 
-  return clone({
-    count: staff.length,
-    next:
-      offset + limit < staff.length
-        ? `/staff/?offset=${offset + limit}&limit=${limit}`
-        : null,
-    previous:
-      offset > 0
-        ? `/staff/?offset=${Math.max(0, offset - limit)}&limit=${limit}`
-        : null,
-    results,
-  })
+  return buildPagedResponse(staff, normalizedParams, '/staff/')
 }
 
 export function getDemoStaffById(id) {
@@ -1167,6 +1479,7 @@ export function getDemoStaffById(id) {
 export function createDemoStaff(staffMember) {
   const data = readDemoData()
   const normalizedPhone = String(staffMember.phone || '').trim()
+  const roleResult = ensureDemoRoleName(staffMember.role)
   const createdAt = new Date().toISOString()
   const nextStaffMember = {
     ...staffMember,
@@ -1191,19 +1504,25 @@ export function createDemoStaff(staffMember) {
     age: Number(staffMember.age),
     address: staffMember.address || null,
     notes: staffMember.notes || null,
+    shift_start: staffMember.shift_start || null,
+    shift_end: staffMember.shift_end || null,
     created_at: createdAt,
   }
 
   data.staff = [createdStaff, ...data.staff]
   writeDemoData(data)
 
-  return clone(createdStaff)
+  return clone({
+    ...createdStaff,
+    role_created: roleResult.created,
+  })
 }
 
 export function updateDemoStaff(id, staffMember) {
   const data = readDemoData()
   const staffId = String(id)
   const normalizedPhone = String(staffMember.phone || '').trim()
+  const roleResult = ensureDemoRoleName(staffMember.role)
 
   if (
     data.staff.some(
@@ -1229,6 +1548,8 @@ export function updateDemoStaff(id, staffMember) {
       age: Number(staffMember.age),
       address: staffMember.address || null,
       notes: staffMember.notes || null,
+      shift_start: staffMember.shift_start || null,
+      shift_end: staffMember.shift_end || null,
     }
 
     validateDemoStaff(nextStaffMember)
@@ -1243,7 +1564,10 @@ export function updateDemoStaff(id, staffMember) {
 
   writeDemoData(data)
 
-  return clone(updatedStaff)
+  return clone({
+    ...updatedStaff,
+    role_created: roleResult.created,
+  })
 }
 
 export function deleteDemoStaff(id) {
@@ -1277,8 +1601,6 @@ export function deleteDemoStaff(id) {
 export function getDemoAppointments(params = {}) {
   const data = readDemoData()
   const normalizedParams = normalizeParams(params)
-  const limitProvided = normalizedParams.limit !== undefined
-  const offsetProvided = normalizedParams.offset !== undefined
   let appointments = scopeAppointmentsForCurrentDoctor(data.appointments)
 
   if (normalizedParams.patient) {
@@ -1301,36 +1623,13 @@ export function getDemoAppointments(params = {}) {
     )
   }
 
-  if (normalizedParams.ordering === '-appointment_dt') {
-    appointments = [...appointments].sort((first, second) => getDate(second) - getDate(first))
-  } else if (normalizedParams.ordering === 'appointment_dt') {
-    appointments = [...appointments].sort((first, second) => getDate(first) - getDate(second))
-  }
+  appointments = sortAppointmentsByOrdering(appointments, normalizedParams.ordering)
 
   const decoratedAppointments = appointments.map((appointment) =>
     decorateAppointment(data, appointment),
   )
 
-  if (!limitProvided && !offsetProvided) {
-    return clone(decoratedAppointments)
-  }
-
-  const limit = Number(normalizedParams.limit || 10)
-  const offset = Number(normalizedParams.offset || 0)
-  const results = decoratedAppointments.slice(offset, offset + limit)
-
-  return clone({
-    count: decoratedAppointments.length,
-    next:
-      offset + limit < decoratedAppointments.length
-        ? `/appointments/?offset=${offset + limit}&limit=${limit}`
-        : null,
-    previous:
-      offset > 0
-        ? `/appointments/?offset=${Math.max(0, offset - limit)}&limit=${limit}`
-        : null,
-    results,
-  })
+  return buildPagedResponse(decoratedAppointments, normalizedParams, '/appointments/')
 }
 
 export function getDemoAppointment(id) {
@@ -1528,29 +1827,17 @@ export function getDemoDoctorAppointments(doctorId, params = {}) {
     )
   }
 
-  if (normalizedParams.ordering === '-appointment_dt') {
-    appointments = [...appointments].sort((first, second) => getDate(second) - getDate(first))
-  } else if (normalizedParams.ordering === 'appointment_dt') {
-    appointments = [...appointments].sort((first, second) => getDate(first) - getDate(second))
-  }
+  appointments = sortAppointmentsByOrdering(appointments, normalizedParams.ordering)
 
-  // Return paginated results
-  const limit = Number(normalizedParams.limit || 10)
-  const offset = Number(normalizedParams.offset || 0)
-  const results = appointments.slice(offset, offset + limit)
-
-  return {
-    count: appointments.length,
-    next:
-      offset + limit < appointments.length
-        ? `/doctors/${doctorId}/appointments/?offset=${offset + limit}&limit=${limit}`
-        : null,
-    previous:
-      offset > 0
-        ? `/doctors/${doctorId}/appointments/?offset=${Math.max(0, offset - limit)}&limit=${limit}`
-        : null,
-    results: clone(results),
-  }
+  return buildPagedResponse(
+    appointments,
+    {
+      page: 1,
+      page_size: 10,
+      ...normalizedParams,
+    },
+    `/doctors/${doctorId}/appointments/`,
+  )
 }
 
 export function resetDemoData() {

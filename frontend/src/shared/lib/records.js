@@ -39,8 +39,21 @@ export function getPatientName(patient, fallback = 'Unnamed patient') {
   return getPersonName(patient, fallback)
 }
 
-export function getDoctorName(doctor, fallback = 'Unknown doctor') {
-  return getPersonName(doctor, fallback)
+export function getDoctorName(doctor, fallback = 'Doctor') {
+  if (!doctor) {
+    return fallback
+  }
+
+  if (typeof doctor === 'string' || typeof doctor === 'number') {
+    return String(doctor)
+  }
+
+  return (
+    String(doctor.full_name || '').trim() ||
+    doctor.username ||
+    doctor.email ||
+    fallback
+  )
 }
 
 export function normalizeStringArray(value) {
@@ -202,7 +215,7 @@ export function getAppointmentPatientName(appointment, patients = []) {
 export function getAppointmentDoctorName(appointment, doctors = []) {
   return (
     appointment?.doctor_name ||
-    getDoctorName(resolveDoctor(appointment, doctors), 'Unknown doctor')
+    getDoctorName(resolveDoctor(appointment, doctors), 'Doctor')
   )
 }
 

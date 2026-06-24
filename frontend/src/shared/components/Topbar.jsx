@@ -4,21 +4,20 @@ import { Bell, LogOut, Menu, Search, X } from 'lucide-react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { useAuth } from '@shared/context/AuthContext'
-import { ROLE_LABELS } from '@shared/lib/roles'
 import Avatar from './Avatar'
 
 export function Topbar({ onMenuClick, subtitle, title }) {
   const location = useLocation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { logout, user } = useAuth()
+  const { logout, role, user } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const querySearch = searchParams.get('search') || ''
   const fullName =
     [user?.first_name, user?.last_name].filter(Boolean).join(' ') ||
     'MediFlow User'
-  const roleLabel = ROLE_LABELS[user?.role] || 'User'
+  const roleLabel = role?.name || 'User'
 
   function getSearchTarget() {
     if (location.pathname === '/appointments') {
@@ -70,7 +69,7 @@ export function Topbar({ onMenuClick, subtitle, title }) {
           <Menu aria-hidden="true" className="h-5 w-5" />
         </button>
         <div className="min-w-0">
-          <h1 className="truncate text-[22px] font-bold leading-7 text-ink">
+          <h1 className="truncate font-display text-[24px] font-normal leading-7 text-ink">
             {title}
           </h1>
           <p className="mt-0.5 truncate text-[13px] font-medium text-slate">

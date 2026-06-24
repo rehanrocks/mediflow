@@ -4,7 +4,6 @@ import { Outlet, useLocation } from 'react-router-dom'
 
 import { useAuth } from '@shared/context/AuthContext'
 import { buildGreeting } from '@shared/lib/greeting'
-import { isDoctor } from '@shared/lib/permissions'
 import Drawer from './Drawer'
 import RouteTransition from './RouteTransition'
 import Sidebar from './Sidebar'
@@ -25,6 +24,13 @@ const PAGE_META = {
     title: 'Staff',
     subtitle: 'Manage clinic staff and their roles',
   },
+  '/reports': {
+    title: 'Reports',
+  },
+  '/access-control': {
+    title: 'Access Control',
+    subtitle: 'Manage roles and module permissions',
+  },
 }
 
 const DEFAULT_META = {
@@ -32,19 +38,19 @@ const DEFAULT_META = {
   subtitle: 'Home page reserved for a future release.',
 }
 
-function getRouteMeta(pathname, user) {
-  if (pathname === '/dashboard/admin') {
+function getRouteMeta(pathname, user, role) {
+  if (pathname === '/dashboard/general' || pathname === '/dashboard/admin') {
     return {
       title: 'Dashboard',
-      subtitle: buildGreeting(user),
+      subtitle: buildGreeting(user, role),
     }
   }
 
   if (pathname === '/dashboard/doctor') {
-    if (isDoctor(user)) {
+    if (role?.slug === 'doctor') {
       return {
         title: 'My Dashboard',
-        subtitle: buildGreeting(user),
+        subtitle: buildGreeting(user, role),
       }
     }
 
@@ -58,7 +64,7 @@ function getRouteMeta(pathname, user) {
     if (pathname === '/appointments') {
       return {
         ...PAGE_META[pathname],
-        subtitle: isDoctor(user)
+        subtitle: role?.slug === 'doctor'
           ? 'Your scheduled appointments'
           : 'All clinic appointments',
       }
@@ -67,7 +73,7 @@ function getRouteMeta(pathname, user) {
     if (pathname === '/patients') {
       return {
         ...PAGE_META[pathname],
-        subtitle: isDoctor(user)
+        subtitle: role?.slug === 'doctor'
           ? 'Your assigned patients'
           : 'All clinic patients',
       }
@@ -164,7 +170,7 @@ function getRouteMeta(pathname, user) {
 }
 
 export function PortalLayout() {
-  const { user } = useAuth()
+  const { role, user } = useAuth()
   const location = useLocation()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [pageMetaOverride, setPageMetaOverride] = useState(null)
@@ -187,7 +193,7 @@ export function PortalLayout() {
   const meta =
     pageMetaOverride?.pathname === location.pathname
       ? pageMetaOverride.meta
-      : getRouteMeta(location.pathname, user)
+      : getRouteMeta(location.pathname, user, role)
 
   return (
     <div className="min-h-screen bg-mist text-ink">

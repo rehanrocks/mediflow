@@ -1,7 +1,7 @@
 /* src/features/staff/pages/AddStaff.jsx - Add new staff member form. */
 import { useEffect, useState } from 'react'
 import { ChevronLeft, UserPlus } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 import StaffFormFields from '@features/staff/components/StaffFormFields'
 import {
@@ -12,26 +12,81 @@ import {
 } from '@features/staff/lib/staffForm'
 import { ErrorBanner, LoadingSpinner } from '@shared/components/FormPrimitives'
 import { useToast } from '@shared/components/Toast'
-import { useAuth } from '@shared/context/AuthContext'
-import { canManageStaff } from '@shared/lib/permissions'
 import { getBackendError } from '@shared/lib/records'
-import { createStaff } from '@shared/services/api'
+import { usePermission } from '@shared/lib/usePermission'
+import { createStaff, getRoleNames } from '@shared/services/api'
+
+function normalizeRoleOptions(response) {
+  if (Array.isArray(response?.results)) {
+    return response.results
+  }
+
+  if (Array.isArray(response)) {
+    return response
+  }
+
+  return []
+}
+
+function canonicalizeRoleName(roleName, roleOptions) {
+  const trimmedRoleName = String(roleName || '').trim()
+
+  if (!Array.isArray(roleOptions)) {
+    return trimmedRoleName
+  }
+
+  return (
+    roleOptions.find(
+      (role) =>
+        String(role.name || '').trim().toLowerCase() ===
+        trimmedRoleName.toLowerCase(),
+    )?.name || trimmedRoleName
+  )
+}
 
 export function AddStaff() {
   const navigate = useNavigate()
   const toast = useToast()
-  const { user } = useAuth()
+  const { canWrite } = usePermission()
   const [data, setData] = useState(INITIAL_STAFF_FORM_DATA)
   const [errors, setErrors] = useState({})
   const [touched, setTouched] = useState({})
   const [generalError, setGeneralError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [roleOptions, setRoleOptions] = useState(null)
+  const [roleOptionsFailed, setRoleOptionsFailed] = useState(false)
 
   useEffect(() => {
-    if (!canManageStaff(user)) {
+    if (!canWrite('staff')) {
       navigate('/not-available', { replace: true })
     }
-  }, [navigate, user])
+  }, [canWrite, navigate])
+
+  useEffect(() => {
+    let mounted = true
+
+    async function loadRoleOptions() {
+      try {
+        const response = await getRoleNames()
+
+        if (mounted) {
+          setRoleOptions(normalizeRoleOptions(response))
+          setRoleOptionsFailed(false)
+        }
+      } catch {
+        if (mounted) {
+          setRoleOptions([])
+          setRoleOptionsFailed(true)
+        }
+      }
+    }
+
+    loadRoleOptions()
+
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   function handleChange(event) {
     const { name, value } = event.target
@@ -79,8 +134,26 @@ export function AddStaff() {
     setIsSubmitting(true)
 
     try {
-      const response = await createStaff(prepareStaffPayload(data))
-      toast.success('Staff member added')
+      const payload = prepareStaffPayload({
+        ...data,
+        role: canonicalizeRoleName(data.role, roleOptions),
+      })
+      const response = await createStaff(payload)
+
+      if (response?.role_created) {
+        toast.custom(
+          <>
+            Staff member added. New role "{payload.role}" saved to Access Control.{' '}
+            <Link className="font-semibold underline" to="/access-control">
+              Go to Access Control
+            </Link>{' '}
+            to set permissions for this role.
+          </>,
+        )
+      } else {
+        toast.success('Staff member added')
+      }
+
       navigate(`/staff/${response.id}`)
     } catch (error) {
       const message = getBackendError(error, 'Staff member could not be created.')
@@ -127,6 +200,8 @@ export function AddStaff() {
             errors={errors}
             onBlur={handleBlur}
             onChange={handleChange}
+            roleOptions={roleOptions}
+            roleOptionsFailed={roleOptionsFailed}
             showStatus={false}
             touched={touched}
           />

@@ -1,7 +1,7 @@
 /* src/features/staff/pages/EditStaff.jsx - Edit existing staff member. */
 import { useEffect, useState } from 'react'
 import { ChevronLeft, Pencil } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import StaffFormFields from '@features/staff/components/StaffFormFields'
 import {
@@ -13,49 +13,66 @@ import {
 import { ErrorBanner, LoadingSpinner } from '@shared/components/FormPrimitives'
 import SkeletonRow from '@shared/components/SkeletonRow'
 import { useToast } from '@shared/components/Toast'
-import { useAuth } from '@shared/context/AuthContext'
-import { canManageStaff } from '@shared/lib/permissions'
 import { getBackendError } from '@shared/lib/records'
-import { getStaffCreatedDateError } from '@shared/lib/staffUtils'
+import { usePermission } from '@shared/lib/usePermission'
 import { validatePhone } from '@shared/lib/validation'
-import { getList, getStaff, getStaffById, updateStaff } from '@shared/services/api'
+import {
+  getList,
+  getRoleNames,
+  getStaff,
+  getStaffById,
+  updateStaff,
+} from '@shared/services/api'
 
 const PHONE_DUPLICATE_ERROR = 'Phone already registered to another staff member'
 
-function mergeCreatedDateError(errors, data, createdAt) {
-  const createdDateError = getStaffCreatedDateError(
-    data.joining_date,
-    createdAt,
+function normalizeRoleOptions(response) {
+  if (Array.isArray(response?.results)) {
+    return response.results
+  }
+
+  if (Array.isArray(response)) {
+    return response
+  }
+
+  return []
+}
+
+function canonicalizeRoleName(roleName, roleOptions) {
+  const trimmedRoleName = String(roleName || '').trim()
+
+  if (!Array.isArray(roleOptions)) {
+    return trimmedRoleName
+  }
+
+  return (
+    roleOptions.find(
+      (role) =>
+        String(role.name || '').trim().toLowerCase() ===
+        trimmedRoleName.toLowerCase(),
+    )?.name || trimmedRoleName
   )
-
-  if (!createdDateError) {
-    return errors
-  }
-
-  return {
-    ...errors,
-    joining_date: createdDateError,
-  }
 }
 
 export function EditStaff() {
   const navigate = useNavigate()
   const { id } = useParams()
   const toast = useToast()
-  const { user } = useAuth()
+  const { canWrite } = usePermission()
   const [data, setData] = useState(null)
   const [errors, setErrors] = useState({})
   const [touched, setTouched] = useState({})
-  const [createdAt, setCreatedAt] = useState('')
   const [generalError, setGeneralError] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [roleOptions, setRoleOptions] = useState(null)
+  const [roleOptionsFailed, setRoleOptionsFailed] = useState(false)
 
   useEffect(() => {
-    if (!canManageStaff(user)) {
+    if (!canWrite('staff')) {
       navigate('/not-available', { replace: true })
     }
-  }, [id, navigate, user])
+  }, [canWrite, navigate])
 
   useEffect(() => {
     let mounted = true
@@ -68,7 +85,6 @@ export function EditStaff() {
 
         if (mounted) {
           setData(mapStaffToForm(staffMember))
-          setCreatedAt(staffMember.created_at || '')
         }
       } catch (error) {
         if (mounted) {
@@ -91,17 +107,39 @@ export function EditStaff() {
     }
   }, [id, toast])
 
+  useEffect(() => {
+    let mounted = true
+
+    async function loadRoleOptions() {
+      try {
+        const response = await getRoleNames()
+
+        if (mounted) {
+          setRoleOptions(normalizeRoleOptions(response))
+          setRoleOptionsFailed(false)
+        }
+      } catch {
+        if (mounted) {
+          setRoleOptions([])
+          setRoleOptionsFailed(true)
+        }
+      }
+    }
+
+    loadRoleOptions()
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
   function handleChange(event) {
     const { name, value } = event.target
     const nextData = {
       ...data,
       [name]: value,
     }
-    const nextErrors = mergeCreatedDateError(
-      validateStaffForm(nextData),
-      nextData,
-      createdAt,
-    )
+    const nextErrors = validateStaffForm(nextData)
 
     if (name !== 'phone' && errors.phone === PHONE_DUPLICATE_ERROR) {
       nextErrors.phone = PHONE_DUPLICATE_ERROR
@@ -129,11 +167,7 @@ export function EditStaff() {
         : {}),
     }))
 
-    const nextErrors = mergeCreatedDateError(
-      validateStaffForm(data),
-      data,
-      createdAt,
-    )
+    const nextErrors = validateStaffForm(data)
 
     if (name !== 'phone' || validatePhone(data?.phone)) {
       setErrors(nextErrors)
@@ -158,11 +192,7 @@ export function EditStaff() {
   async function handleSubmit(event) {
     event.preventDefault()
 
-    const nextErrors = mergeCreatedDateError(
-      validateStaffForm(data),
-      data,
-      createdAt,
-    )
+    const nextErrors = validateStaffForm(data)
     setTouched(TOUCHED_ALL_STAFF_FIELDS)
 
     if (errors.phone === PHONE_DUPLICATE_ERROR) {
@@ -177,8 +207,26 @@ export function EditStaff() {
     setIsSubmitting(true)
 
     try {
-      await updateStaff(id, prepareStaffPayload(data))
-      toast.success('Changes saved')
+      const payload = prepareStaffPayload({
+        ...data,
+        role: canonicalizeRoleName(data.role, roleOptions),
+      })
+      const response = await updateStaff(id, payload)
+
+      if (response?.role_created) {
+        toast.custom(
+          <>
+            Staff member updated. New role "{payload.role}" saved to Access Control.{' '}
+            <Link className="font-semibold underline" to="/access-control">
+              Go to Access Control
+            </Link>{' '}
+            to set permissions for this role.
+          </>,
+        )
+      } else {
+        toast.success('Changes saved')
+      }
+
       navigate(`/staff/${id}`)
     } catch (error) {
       const message = getBackendError(error, 'Staff member could not be updated.')
@@ -252,6 +300,8 @@ export function EditStaff() {
             errors={errors}
             onBlur={handleBlur}
             onChange={handleChange}
+            roleOptions={roleOptions}
+            roleOptionsFailed={roleOptionsFailed}
             showStatus
             touched={touched}
           />

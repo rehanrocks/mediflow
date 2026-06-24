@@ -5,8 +5,8 @@ import Avatar from '@shared/components/Avatar'
 import DoctorStatusBadge from '@shared/components/doctors/DoctorStatusBadge'
 import SpecializationChip from '@shared/components/doctors/SpecializationChip'
 import { formatShiftTime } from '@shared/lib/doctorUtils'
-import { canViewFullProfile } from '@shared/lib/permissions'
-import { formatDate } from '@shared/lib/records'
+import { formatDate, getDoctorName } from '@shared/lib/records'
+import { usePermission } from '@shared/lib/usePermission'
 
 function DetailItem({ children, label }) {
   return (
@@ -21,22 +21,27 @@ function DetailItem({ children, label }) {
   )
 }
 
-export function ProfileHeaderCard({ currentUser, doctor }) {
+export function ProfileHeaderCard({ doctor }) {
+  const { canViewFullDoctorProfile } = usePermission()
+
   if (!doctor) return null
 
-  const canViewFull = canViewFullProfile(currentUser, doctor.id)
+  const canViewFull = canViewFullDoctorProfile(doctor.id)
+  const doctorName = getDoctorName(doctor)
 
   return (
     <section className="rounded-card bg-canvas p-6 shadow-card">
       <div className="flex flex-col gap-6 min-[900px]:flex-row min-[900px]:items-start min-[900px]:justify-between">
         <div className="flex min-w-0 gap-4">
-          <Avatar name={doctor.full_name} size="2xl" />
+          <Avatar name={doctorName} size="2xl" />
           <div className="min-w-0">
             <h1 className="truncate text-[24px] font-bold text-ink">
-              {doctor.full_name}
+              {doctorName}
             </h1>
             <p className="mt-0.5 text-[14px] font-medium text-slate">
-              {doctor.qualification || 'Qualification not specified'}
+              {doctor.qualifications?.map((item) => item.name).join(', ') ||
+                doctor.qualification ||
+                'Qualification not specified'}
             </p>
             {doctor.specializations?.length ? (
               <div className="mt-3">

@@ -15,6 +15,8 @@ export const INITIAL_STAFF_FORM_DATA = {
   role: '',
   status: 'active',
   joining_date: new Date().toISOString().split('T')[0],
+  shift_start: '09:00',
+  shift_end: '17:00',
   notes: '',
 }
 
@@ -26,6 +28,8 @@ export const TOUCHED_ALL_STAFF_FIELDS = {
   notes: true,
   phone: true,
   role: true,
+  shift_end: true,
+  shift_start: true,
   status: true,
 }
 
@@ -65,6 +69,18 @@ export function validateStaffForm(data) {
     errors.joining_date = joiningDateError
   }
 
+  if (!data.shift_start) {
+    errors.shift_start = 'Shift start time is required'
+  }
+
+  if (!data.shift_end) {
+    errors.shift_end = 'Shift end time is required'
+  }
+
+  if (data.shift_start && data.shift_end && data.shift_end === data.shift_start) {
+    errors.shift_end = 'End time must be different from start time'
+  }
+
   return errors
 }
 
@@ -77,6 +93,8 @@ export function mapStaffToForm(staffMember) {
     role: staffMember.role || '',
     status: staffMember.status || 'active',
     joining_date: staffMember.joining_date || '',
+    shift_start: staffMember.shift_start || '09:00',
+    shift_end: staffMember.shift_end || '17:00',
     notes: staffMember.notes || '',
   }
 }
@@ -93,6 +111,8 @@ export function prepareStaffPayload(data) {
     role: String(data.role || '').trim(),
     status: data.status,
     joining_date: data.joining_date,
+    shift_start: data.shift_start,
+    shift_end: data.shift_end,
     notes: String(data.notes || '').trim() || null,
   }
 }
