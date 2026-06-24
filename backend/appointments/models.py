@@ -21,7 +21,7 @@ class Patient(models.Model):
     pre_existing_conditions = models.JSONField(default=list, blank=True)
     known_allergies = models.JSONField(default=list, blank=True)
     current_medications = models.JSONField(default=list, blank=True)
-    blood_group = models.CharField(max_length=5, blank=True)
+    blood_group = models.CharField(max_length=10, blank=True)
     onboarding_date = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -101,7 +101,7 @@ class Appointment(models.Model):
         if self.doctor is not None:
             if self.doctor.organization_id != self.organization_id:
                 raise ValidationError({'doctor': 'Doctor does not belong to this organization.'})
-            if self.doctor.role != 'doctor':
+            if self.doctor.role_slug != 'doctor':
                 raise ValidationError({'doctor': 'Assigned user is not a doctor.'})
 
     def save(self, *args, **kwargs):

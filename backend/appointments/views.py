@@ -1,31 +1,62 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from .models import Patient, Appointment
-from .serializers import PatientSerializer, AppointmentSerializer, DoctorSerializer
-from .permissions import IsStaffMember
+from .serializers import PatientSerializer, AppointmentSerializer
 from organizations.permissions import HasFeature
-from users.models import User
+from users.permissions import IsAdminRole
+from access_control.permissions import HasModuleAccess
 
 
 class PatientViewSet(viewsets.ModelViewSet):
     queryset = Patient.objects.all()
     serializer_class = PatientSerializer
-    permission_classes = [IsAuthenticated, IsStaffMember, HasFeature("patients")]
     filter_backends = [SearchFilter, OrderingFilter]
     search_fields = ['full_name', 'phone']
     ordering_fields = ['full_name', 'created_at']
     ordering = ['-created_at']
+
+    def get_permissions(self):
+        if self.action == 'destroy':
+            return [IsAuthenticated(), IsAdminRole(), HasFeature('patients')()]
+        if self.action in ('create', 'update', 'partial_update'):
+            return [IsAuthenticated(), HasModuleAccess("patients", "write"), HasFeature('patients')()]
+        return [IsAuthenticated(), HasModuleAccess("patients", "read"), HasFeature('patients')()]
 
     def get_queryset(self):
         qs = Patient.objects.filter(organization=self.request.user.organization)
         phone = self.request.query_params.get('phone', '').strip()
         if phone:
             qs = qs.filter(phone=phone)
+
+        if self.request.user.role_slug == 'doctor':
+            patient_ids = Appointment.objects.filter(
+                doctor=self.request.user,
+                organization=self.request.user.organization,
+            ).values_list('patient_id', flat=True).distinct()
+            qs = qs.filter(id__in=patient_ids)
+
         return qs
+
+    def get_object(self):
+        obj = super().get_object()
+
+        if self.request.user.role_slug == 'doctor':
+            has_access = Appointment.objects.filter(
+                doctor=self.request.user,
+                patient=obj,
+                organization=self.request.user.organization,
+            ).exists()
+            if not has_access:
+                raise PermissionDenied(
+                    "You do not have access to this patient."
+                )
+
+        return obj
 
 
 class AppointmentViewSet(viewsets.ModelViewSet):
@@ -38,16 +69,18 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     ordering = ['-appointment_dt']
 
     def get_permissions(self):
-        if self.action in ('create', 'update', 'partial_update', 'destroy', 'update_status'):
-            return [IsAuthenticated(), IsStaffMember(), HasFeature("appointments")()]
-        return [IsAuthenticated(), HasFeature("appointments")()]
+        if self.action == 'destroy':
+            return [IsAuthenticated(), IsAdminRole(), HasFeature("appointments")()]
+        if self.action in ('create', 'update', 'partial_update', 'update_status'):
+            return [IsAuthenticated(), HasModuleAccess("appointments", "write"), HasFeature("appointments")()]
+        return [IsAuthenticated(), HasModuleAccess("appointments", "read"), HasFeature("appointments")()]
 
     def get_queryset(self):
         qs = Appointment.objects.filter(
             organization=self.request.user.organization,
         ).select_related('patient', 'doctor', 'booked_by')
 
-        if self.request.user.role == 'doctor':
+        if self.request.user.role_slug == 'doctor':
             qs = qs.filter(doctor=self.request.user)
 
         patient_id = self.request.query_params.get('patient', '').strip()
@@ -82,12 +115,4 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-class DoctorListView(viewsets.ReadOnlyModelViewSet):
-    permission_classes = [IsAuthenticated]
-    serializer_class = DoctorSerializer
 
-    def get_queryset(self):
-        return User.objects.filter(
-            role='doctor',
-            organization=self.request.user.organization,
-        )

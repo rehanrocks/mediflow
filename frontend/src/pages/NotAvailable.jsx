@@ -1,10 +1,16 @@
-/* src/pages/NotAvailable.jsx - Shows a calm state for disabled feature routes. */
+/* src/pages/NotAvailable.jsx - Shows a calm state for disabled or restricted routes. */
 import { Home, Mail } from 'lucide-react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+
+import { useAuth } from '@shared/context/AuthContext'
 
 export function NotAvailable() {
   const location = useLocation()
+  const [searchParams] = useSearchParams()
+  const { homePath } = useAuth()
+  const reason = location.state?.reason || searchParams.get('reason') || 'feature'
   const featureKey = location.state?.featureKey
+  const isRoleBlocked = reason === 'role'
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-mist p-6 text-ink">
@@ -36,14 +42,15 @@ export function NotAvailable() {
         </svg>
 
         <h1 className="mt-8 text-center text-[24px] font-bold text-ink">
-          Not available on your plan
+          {isRoleBlocked ? 'Access restricted' : 'Not available on your plan'}
         </h1>
         <p className="mt-3 max-w-sm text-center text-[15px] font-normal leading-relaxed text-slate">
-          This feature is not enabled for your organization. Contact your
-          administrator to activate it.
+          {isRoleBlocked
+            ? 'You do not have permission to open this module with your current role.'
+            : 'This feature is not enabled for your organization. Contact your administrator to activate it.'}
         </p>
 
-        {featureKey ? (
+        {!isRoleBlocked && featureKey ? (
           <p className="mt-5 rounded-control bg-brand-light px-3 py-1.5 font-mono text-[12px] font-medium text-brand">
             {featureKey}
           </p>
@@ -52,7 +59,7 @@ export function NotAvailable() {
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">
           <Link
             className="primary-button inline-flex h-10 items-center justify-center rounded-control bg-brand px-4 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2"
-            to="/dashboard"
+            to={homePath()}
           >
             <Home aria-hidden="true" className="mr-1.5 h-[15px] w-[15px]" />
             Go to Dashboard

@@ -73,7 +73,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
             doctor = data['doctor']
             if doctor.organization_id != organization.id:
                 raise serializers.ValidationError({'doctor': 'Doctor does not belong to this organization.'})
-            if doctor.role != 'doctor':
+            if doctor.role_slug != 'doctor':
                 raise serializers.ValidationError({'doctor': 'Assigned user is not a doctor.'})
 
         return data

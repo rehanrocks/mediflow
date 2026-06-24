@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
-import { useAuth } from '../context/AuthContext'
+import { useAuth } from '@shared/context/AuthContext'
 
 function BrandMark() {
   return (
@@ -74,8 +74,8 @@ function LoginField({
 
 export function Login() {
   const navigate = useNavigate()
-  const { login } = useAuth()
-  const [username, setUsername] = useState('')
+  const { homePath, login } = useAuth()
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -87,8 +87,8 @@ export function Login() {
     setIsSubmitting(true)
 
     try {
-      await login(username, password)
-      navigate('/dashboard', { replace: true })
+      await login(email, password)
+      navigate(homePath(), { replace: true })
     } catch (loginError) {
       setError(
         loginError?.response?.data?.detail ||
@@ -185,12 +185,12 @@ export function Login() {
             <LoginField
               autoComplete="username"
               icon={User}
-              id="username"
+              id="email"
               label="Username"
-              onChange={(event) => setUsername(event.target.value)}
+              onChange={(event) => setEmail(event.target.value)}
               placeholder="Enter username"
               type="text"
-              value={username}
+              value={email}
             />
 
             <div>
@@ -239,7 +239,7 @@ export function Login() {
             {isSubmitting ? (
               <span className="h-4 w-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
             ) : (
-              'Sign in'
+              'Sign In'
             )}
           </button>
 
