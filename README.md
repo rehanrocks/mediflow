@@ -1,2 +1,2 @@
-# Mediflow-AI
-MediFlow AI is an intelligent clinic management platform that streamlines appointment booking, patient records, and doctor workflows — built for the modern front desk. Manage every visit, role, and record in one seamless, secure portal.
+# mediflow-ai
+AI-powered continuous care platform connecting clinics, doctors & patients. Appointment booking, real-time health tracking, smart alerts, medication adherence & predictive analytics. Built with Django · React · PostgreSQL.
