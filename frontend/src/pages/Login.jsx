@@ -128,9 +128,9 @@ export function Login() {
 
             <div className="mt-10 space-y-3">
               {[
-                'Real-time patient monitoring',
-                'AI-powered clinical alerts',
-                'HIPAA-compliant & encrypted',
+                'Smart appointment scheduling',
+                'Doctor & staff management',
+                'Role-based access control',
               ].map((feature, index) => (
                 <div
                   className="flex animate-fade-up items-center gap-2 text-sm font-normal text-white/70"
@@ -149,12 +149,12 @@ export function Login() {
             style={{ animationDelay: '0.4s' }}
           >
             <p className="text-sm font-normal leading-6 text-white/80">
-              "MediFlow reduced our missed follow-ups by 40% in 6 weeks."
+              "Managing our clinic has never been easier. Everything in one place."
             </p>
             <div className="mt-4">
-              <p className="text-sm font-semibold text-white/80">Dana Teller</p>
+              <p className="text-sm font-semibold text-white/80">Downtown Clinic</p>
               <p className="text-xs font-medium text-white/50">
-                Downtown Clinic Operations
+                Trusted by healthcare teams
               </p>
             </div>
           </div>

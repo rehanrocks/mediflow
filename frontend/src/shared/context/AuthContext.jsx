@@ -49,6 +49,8 @@ function normalizeAuthenticatedUser(responseUser = {}) {
     enabled_features: responseUser.enabled_features,
     user_id: responseUser.user_id,
     doctor_id: responseUser.doctor_id,
+    permissions: responseUser.permissions || {},
+    role_detail: responseUser.role_detail || {},
   }
 }
 
@@ -67,8 +69,12 @@ export function AuthProvider({ children }) {
             response.user.organization_id ?? response.organization_id,
           organization_name:
             response.user.organization_name ?? response.organization_name,
+          permissions:
+            response.user.permissions ?? response.permissions,
+          role_detail:
+            response.user.role_detail ?? response.role_detail,
         }
-      : response
+      : { ...response, permissions: response.permissions, role_detail: response.role_detail }
     const authenticatedUser = normalizeAuthenticatedUser(responseUser)
     const accessToken = response?.access_token ?? response?.access
     const refreshToken = response?.refresh_token ?? response?.refresh
@@ -133,6 +139,8 @@ export function AuthProvider({ children }) {
       hasFeature,
       can,
       homePath,
+      permissions: user?.permissions || {},
+      role: user?.role_detail || { slug: user?.role, is_system: true },
     }),
     [can, hasFeature, homePath, login, logout, user],
   )

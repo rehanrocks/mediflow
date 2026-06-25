@@ -1,3 +1,4 @@
+from django.utils.text import slugify
 from rest_framework import serializers
 from .models import Role, ModulePermission
 
@@ -38,6 +39,22 @@ class RoleWriteSerializer(serializers.ModelSerializer):
                 "Role name must be at least 2 characters."
             )
         return value.strip()
+
+    def validate(self, data):
+        request = self.context.get("request")
+        if request and request.user.organization:
+            slug = slugify(data.get("name", ""))
+            qs = Role.objects.filter(
+                organization=request.user.organization,
+                slug=slug,
+            )
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(
+                    {"name": "A role with this name already exists."}
+                )
+        return data
 
 
 class ModulePermissionWriteSerializer(serializers.ModelSerializer):

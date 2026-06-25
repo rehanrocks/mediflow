@@ -1,8 +1,38 @@
-/* src/shared/lib/permissions.js - Central RBAC helpers for MediFlow portal roles. */
+/* src/shared/lib/permissions.js — DB-driven permission helpers.
+   Reads from user.permissions dict (populated at login by the access_control module).
+   Falls back to legacy role-based checks if permissions dict is not yet available. */
 import { ROLES } from './roles'
+
+function hasReadAccess(user, module) {
+  const access = user?.permissions?.[module]
+  if (access) return access === 'read' || access === 'both'
+  return hasAuthenticatedRole(user)
+}
+
+function hasWriteAccess(user, module) {
+  const access = user?.permissions?.[module]
+  if (access) return access === 'write' || access === 'both'
+  return hasAuthenticatedRole(user) && !isLegacyDoctor(user)
+}
 
 function hasAuthenticatedRole(user) {
   return Boolean(user?.role)
+}
+
+function getRoleSlug(user) {
+  return user?.role_detail?.slug || user?.role
+}
+
+function isLegacyAdmin(user) {
+  return getRoleSlug(user) === ROLES.ADMIN
+}
+
+function isLegacyReceptionist(user) {
+  return getRoleSlug(user) === ROLES.RECEPTIONIST
+}
+
+function isLegacyDoctor(user) {
+  return getRoleSlug(user) === ROLES.DOCTOR
 }
 
 export function getUserDoctorId(user) {
@@ -10,86 +40,86 @@ export function getUserDoctorId(user) {
 }
 
 export function isAdmin(user) {
-  return user?.role === ROLES.ADMIN
+  return isLegacyAdmin(user)
 }
 
 export function isDoctor(user) {
-  return user?.role === ROLES.DOCTOR
+  return isLegacyDoctor(user)
 }
 
 export function isReceptionist(user) {
-  return user?.role === ROLES.RECEPTIONIST
+  return isLegacyReceptionist(user)
 }
 
 export function canViewPatients(user) {
-  return hasAuthenticatedRole(user)
+  return hasReadAccess(user, 'patients')
 }
 
 export function canAddPatient(user) {
-  return hasAuthenticatedRole(user) && !isDoctor(user)
+  return hasWriteAccess(user, 'patients')
 }
 
 export function canEditPatient(user) {
-  return hasAuthenticatedRole(user) && !isDoctor(user)
+  return hasWriteAccess(user, 'patients')
 }
 
 export function canDeletePatient(user) {
-  return isAdmin(user)
+  return isLegacyAdmin(user)
 }
 
 export function canViewAppointments(user) {
-  return hasAuthenticatedRole(user)
+  return hasReadAccess(user, 'appointments')
 }
 
 export function canBookAppointment(user) {
-  return hasAuthenticatedRole(user) && !isDoctor(user)
+  return hasWriteAccess(user, 'appointments')
 }
 
 export function canEditAppointment(user) {
-  return hasAuthenticatedRole(user) && !isDoctor(user)
+  return hasWriteAccess(user, 'appointments')
 }
 
 export function canDeleteAppointment(user) {
-  return isAdmin(user)
+  return isLegacyAdmin(user)
 }
 
 export function canChangeStatus(user) {
-  return hasAuthenticatedRole(user) && !isDoctor(user)
+  return hasWriteAccess(user, 'appointments')
 }
 
 export function canChangePayment(user) {
-  return hasAuthenticatedRole(user) && !isDoctor(user)
+  return hasWriteAccess(user, 'appointments')
 }
 
 export function canViewDoctors(user) {
-  return isAdmin(user) || isReceptionist(user)
+  return hasReadAccess(user, 'doctors')
 }
 
 export function canAddDoctor(user) {
-  return isAdmin(user) || isReceptionist(user)
+  return hasWriteAccess(user, 'doctors')
 }
 
 export function canEditDoctor(user) {
-  return isAdmin(user)
+  return isLegacyAdmin(user)
 }
 
 export function canDeleteDoctor(user) {
-  return isAdmin(user)
+  return isLegacyAdmin(user)
 }
 
 export function canViewStaff(user) {
-  return isAdmin(user)
+  return hasReadAccess(user, 'staff')
 }
 
 export function canManageStaff(user) {
-  return isAdmin(user)
+  return hasWriteAccess(user, 'staff')
 }
 
 export function isOwnDoctorProfile(user, doctorId) {
   const currentDoctorId = getUserDoctorId(user)
 
   return (
-    isDoctor(user) &&
+    isLegacyDoctor(user) &&
     currentDoctorId !== undefined &&
     String(currentDoctorId) === String(doctorId)
   )
@@ -97,7 +127,7 @@ export function isOwnDoctorProfile(user, doctorId) {
 
 export function canViewFullProfile(user, doctorId) {
   if (!user) return false
-  return isAdmin(user) || isReceptionist(user) || isOwnDoctorProfile(user, doctorId)
+  return isLegacyAdmin(user) || isLegacyReceptionist(user) || isOwnDoctorProfile(user, doctorId)
 }
 
 export function canViewDoctorStats(user, doctorId) {

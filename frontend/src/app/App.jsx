@@ -19,10 +19,12 @@ import EditStaff from '@features/staff/pages/EditStaff.jsx'
 import StaffList from '@features/staff/pages/StaffList.jsx'
 import StaffView from '@features/staff/pages/StaffView.jsx'
 import AdminDashboardRoute from '@shared/components/AdminDashboardRoute.jsx'
+import AdminOnlyRoute from '@shared/components/AdminOnlyRoute.jsx'
 import FeatureRoute from '@shared/components/FeatureRoute.jsx'
 import PortalLayout from '@shared/components/PortalLayout.jsx'
 import ProtectedRoute from '@shared/components/ProtectedRoute.jsx'
 import RootRedirect from '@shared/components/RootRedirect.jsx'
+import AccessControl from '@features/access-control/pages/AccessControl.jsx'
 import Login from '../pages/Login.jsx'
 import NotAvailable from '../pages/NotAvailable.jsx'
 import NotFound from '../pages/NotFound.jsx'
@@ -177,6 +179,15 @@ export function App() {
                 <FeatureRoute feature="staff">
                   <EditStaff />
                 </FeatureRoute>
+              }
+            />
+
+            <Route
+              path="/access-control"
+              element={
+                <AdminOnlyRoute>
+                  <AccessControl />
+                </AdminOnlyRoute>
               }
             />
           </Route>

@@ -34,6 +34,13 @@ class RoleViewSet(viewsets.ModelViewSet):
         org = self.request.user.organization
         serializer.save(organization=org, is_system=False)
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        read_serializer = RoleSerializer(serializer.instance)
+        return Response(read_serializer.data, status=status.HTTP_201_CREATED)
+
     def destroy(self, request, *args, **kwargs):
         role = self.get_object()
         if role.is_system:

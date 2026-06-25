@@ -3,6 +3,7 @@ import {
   BadgeCheck,
   CalendarClock,
   LayoutDashboard,
+  ShieldCheck,
   Stethoscope,
   Users,
 } from 'lucide-react'
@@ -63,6 +64,14 @@ export function getNavItems(user, hasFeature) {
       to: '/staff',
       label: 'Staff',
       icon: BadgeCheck,
+    })
+  }
+
+  if (user.role === ROLES.ADMIN) {
+    items.push({
+      to: '/access-control',
+      label: 'Access Control',
+      icon: ShieldCheck,
     })
   }
 

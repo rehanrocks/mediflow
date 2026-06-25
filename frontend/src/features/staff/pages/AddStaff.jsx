@@ -80,7 +80,14 @@ export function AddStaff() {
 
     try {
       const response = await createStaff(prepareStaffPayload(data))
-      toast.success('Staff member added')
+      if (response.role_created) {
+        toast.info(
+          `New role "${data.role}" saved to Access Control. ` +
+          'Go to Access Control to set permissions for this role.',
+        )
+      } else {
+        toast.success('Staff member added')
+      }
       navigate(`/staff/${response.id}`)
     } catch (error) {
       const message = getBackendError(error, 'Staff member could not be created.')

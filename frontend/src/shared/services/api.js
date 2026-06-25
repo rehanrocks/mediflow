@@ -27,6 +27,16 @@ import {
   updateDemoStatus,
 } from '@shared/lib/seedData'
 
+import {
+  getDemoRoles,
+  createDemoRole,
+  updateDemoRole,
+  deleteDemoRole,
+  setDemoRolePermissions,
+  getDemoRoleNames,
+  ensureDemoRoleName,
+} from '@shared/lib/accessControlData'
+
 export const api = axios.create({
   baseURL: 'http://localhost:8000/api',
 })
@@ -429,5 +439,93 @@ export async function updatePaymentStatus(id, paymentStatus) {
       return data
     },
     () => updateDemoPayment(id, paymentStatus),
+  )
+}
+
+export async function getRoles() {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.get('/access-control/roles/')
+      return data
+    },
+    () => getDemoRoles(),
+  )
+}
+
+export async function getRoleById(id) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.get(`/access-control/roles/${id}/`)
+      return data
+    },
+    () => {
+      const roles = getDemoRoles()
+      return roles.find((r) => String(r.id) === String(id)) || null
+    },
+  )
+}
+
+export async function createRole(roleData) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.post('/access-control/roles/', roleData)
+      return data
+    },
+    () => createDemoRole(roleData),
+  )
+}
+
+export async function updateRole(id, roleData) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.put(`/access-control/roles/${id}/`, roleData)
+      return data
+    },
+    () => updateDemoRole(id, roleData),
+  )
+}
+
+export async function deleteRole(id) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.delete(`/access-control/roles/${id}/`)
+      return data
+    },
+    () => deleteDemoRole(id),
+  )
+}
+
+export async function setRolePermissions(id, payload) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.post(
+        `/access-control/roles/${id}/set-permissions/`,
+        payload,
+      )
+      return data
+    },
+    () => setDemoRolePermissions(id, payload),
+  )
+}
+
+export async function getRoleNames() {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.get('/access-control/role-names/')
+      return data
+    },
+    () => getDemoRoleNames(),
+  )
+}
+
+export async function ensureRoleName(name) {
+  return withDemoFallback(
+    async () => {
+      const { data } = await api.post('/access-control/roles/from-staff/', {
+        role_name: name,
+      })
+      return data
+    },
+    () => ensureDemoRoleName(name),
   )
 }

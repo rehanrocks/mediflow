@@ -177,8 +177,15 @@ export function EditStaff() {
     setIsSubmitting(true)
 
     try {
-      await updateStaff(id, prepareStaffPayload(data))
-      toast.success('Changes saved')
+      const response = await updateStaff(id, prepareStaffPayload(data))
+      if (response.role_created) {
+        toast.info(
+          `New role "${data.role}" saved to Access Control. ` +
+          'Go to Access Control to set permissions for this role.',
+        )
+      } else {
+        toast.success('Changes saved')
+      }
       navigate(`/staff/${id}`)
     } catch (error) {
       const message = getBackendError(error, 'Staff member could not be updated.')

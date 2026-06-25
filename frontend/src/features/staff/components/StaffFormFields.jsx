@@ -1,9 +1,120 @@
 /* src/features/staff/components/StaffFormFields.jsx - Shared staff form controls. */
+import { useEffect, useState } from 'react'
 import {
   FormField,
   FormSection,
   getFieldClass,
 } from '@shared/components/FormPrimitives'
+import { getRoleNames } from '@shared/services/api'
+
+const OTHER_VALUE = '__other__'
+
+function RoleSelect({ error, hasError, onChange, value }) {
+  const [roles, setRoles] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [fetchFailed, setFetchFailed] = useState(false)
+  const [isOther, setIsOther] = useState(false)
+
+  useEffect(() => {
+    let mounted = true
+
+    async function loadRoles() {
+      try {
+        const data = await getRoleNames()
+        if (mounted) {
+          setRoles(Array.isArray(data) ? data : [])
+        }
+      } catch {
+        if (mounted) setFetchFailed(true)
+      } finally {
+        if (mounted) setIsLoading(false)
+      }
+    }
+
+    loadRoles()
+    return () => { mounted = false }
+  }, [])
+
+  useEffect(() => {
+    if (roles.length > 0 && value) {
+      const matched = roles.find(
+        (r) => r.name.toLowerCase() === String(value).toLowerCase()
+      )
+      setIsOther(!matched)
+    }
+  }, [roles, value])
+
+  if (fetchFailed) {
+    return (
+      <input
+        className={getFieldClass(hasError ? error : '')}
+        name="role"
+        onChange={onChange}
+        placeholder="e.g. Nurse, Ward Boy, Sweeper, Security Guard..."
+        type="text"
+        value={value}
+      />
+    )
+  }
+
+  function handleSelectChange(e) {
+    const selected = e.target.value
+    if (selected === OTHER_VALUE) {
+      setIsOther(true)
+      onChange({ target: { name: 'role', value: '' } })
+    } else {
+      setIsOther(false)
+      onChange({ target: { name: 'role', value: selected } })
+    }
+  }
+
+  function handleCustomInput(e) {
+    onChange({ target: { name: 'role', value: e.target.value } })
+  }
+
+  return (
+    <>
+      <select
+        className={getFieldClass(hasError ? error : '', 'mb-2')}
+        disabled={isLoading}
+        name="role-select"
+        onChange={handleSelectChange}
+        value={
+          isOther
+            ? OTHER_VALUE
+            : roles.find(
+                (r) => r.name.toLowerCase() === String(value).toLowerCase()
+              )?.name ?? (value ? OTHER_VALUE : '')
+        }
+      >
+        {isLoading ? (
+          <option value="">Loading roles...</option>
+        ) : (
+          <>
+            <option value="">Select a role...</option>
+            {roles.map((r) => (
+              <option key={r.id} value={r.name}>
+                {r.name}
+              </option>
+            ))}
+            <option value={OTHER_VALUE}>Other (type your own)...</option>
+          </>
+        )}
+      </select>
+
+      {isOther && (
+        <input
+          className={getFieldClass(hasError ? error : '')}
+          name="role"
+          onChange={handleCustomInput}
+          placeholder="Type custom role title..."
+          type="text"
+          value={value}
+        />
+      )}
+    </>
+  )
+}
 
 export function StaffFormFields({
   data,
@@ -87,16 +198,13 @@ export function StaffFormFields({
       <FormSection title="Employment Details">
         <FormField
           error={touched.role ? errors.role : ''}
-          hint="Type any role title as needed - this field is flexible."
+          hint="Select an existing role or type a custom one."
           label="Role"
         >
-          <input
-            className={getFieldClass(touched.role ? errors.role : '')}
-            name="role"
-            onBlur={onBlur}
+          <RoleSelect
+            error={touched.role ? errors.role : ''}
+            hasError={!!(touched.role && errors.role)}
             onChange={onChange}
-            placeholder="e.g. Nurse, Ward Boy, Sweeper, Security Guard..."
-            type="text"
             value={data.role}
           />
         </FormField>
