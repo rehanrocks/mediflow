@@ -39,7 +39,7 @@ export function DuplicatePatientModal({
             <p className="truncate text-[14px] font-semibold text-ink">
               {getPatientName(patient)}
             </p>
-            <p className="font-mono text-[12px] text-slate">{patient.phone || '-'}</p>
+            <p className="font-sans text-[12px] text-slate">{patient.phone || '-'}</p>
             {condition ? (
               <p className="truncate text-[12px] font-normal text-slate">{condition}</p>
             ) : null}

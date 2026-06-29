@@ -43,13 +43,13 @@ export function PatientSummaryPanel({ link, patient }) {
                 {getPatientName(patient)}
               </p>
             )}
-            <p className="mt-1 font-mono text-[12px] font-medium text-slate">
+            <p className="mt-1 font-sans text-[12px] font-medium text-slate">
               {Number.isFinite(age) ? `${age} yrs` : '-'} · {patient.phone || '-'}
             </p>
           </div>
         </div>
         <div className="text-left sm:text-right">
-          <p className="font-mono text-[12px] font-medium text-slate">
+          <p className="font-sans text-[12px] font-medium text-slate">
             Last Visit: {formatDate(patient.last_visit_date)}
           </p>
           <p className="mt-1 text-[12px] font-medium text-slate">

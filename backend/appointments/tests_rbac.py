@@ -242,7 +242,7 @@ class RBACTests(TestCase):
     def test_staff_list_receptionist_403(self):
         resp = self._client(self.receptionist).get('/api/staff/')
         self.assertEqual(resp.status_code, 403)
-        self.assertIn('Only administrators can access', str(resp.data))
+        self.assertIn('do not have permission', str(resp.data))
 
     def test_staff_list_admin_200(self):
         resp = self._client(self.admin).get('/api/staff/')

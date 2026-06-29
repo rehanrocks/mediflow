@@ -9,10 +9,9 @@ import CasesSparkline from '@shared/components/doctors/CasesSparkline'
 import DoctorStatusBadge from '@shared/components/doctors/DoctorStatusBadge'
 import SpecializationChip from '@shared/components/doctors/SpecializationChip'
 import { useToast } from '@shared/components/Toast'
-import { useAuth } from '@shared/context/AuthContext'
-import { canDeleteDoctor, canEditDoctor } from '@shared/lib/permissions'
 import { formatShiftTime } from '@shared/lib/doctorUtils'
-import { getBackendError } from '@shared/lib/records'
+import { getBackendError, getDoctorName } from '@shared/lib/records'
+import { usePermission } from '@shared/lib/usePermission'
 import { deleteDoctor } from '@shared/services/api'
 
 function StatBlock({ context, label, value }) {
@@ -21,7 +20,7 @@ function StatBlock({ context, label, value }) {
       <p className="text-[11px] font-normal uppercase tracking-wide text-slate/70">
         {label}
       </p>
-      <p className="mt-1 font-mono text-[18px] font-bold text-ink">{value}</p>
+      <p className="mt-1 font-sans text-[18px] font-bold text-ink">{value}</p>
       <p className="text-[11px] font-normal text-slate">{context}</p>
     </div>
   )
@@ -30,15 +29,16 @@ function StatBlock({ context, label, value }) {
 export function DoctorCard({ doctor, onDelete }) {
   const navigate = useNavigate()
   const toast = useToast()
-  const { user } = useAuth()
+  const { canDelete: canDeleteRecords, isAdmin } = usePermission()
   const [showMenu, setShowMenu] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
-  const canEdit = canEditDoctor(user)
-  const canDelete = canDeleteDoctor(user)
+  const canEdit = isAdmin
+  const canDelete = canDeleteRecords()
   const avgCases = Number.isFinite(Number(doctor.avg_cases_per_day))
     ? Number(doctor.avg_cases_per_day).toFixed(1)
     : '-'
+  const doctorName = getDoctorName(doctor)
 
   function handleCardClick() {
     navigate(`/doctors/${doctor.id}`)
@@ -82,10 +82,10 @@ export function DoctorCard({ doctor, onDelete }) {
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
-            <Avatar name={doctor.full_name} size="lg" />
+            <Avatar name={doctorName} size="lg" />
             <div className="min-w-0">
               <h3 className="truncate text-[16px] font-semibold text-ink">
-                {doctor.full_name || 'Unnamed doctor'}
+                {doctorName}
               </h3>
               <p className="mt-0.5 truncate text-[12px] font-normal text-slate">
                 {doctor.qualification || 'Qualification not specified'}
@@ -172,7 +172,7 @@ export function DoctorCard({ doctor, onDelete }) {
 
         <div className="mt-3 flex items-center justify-between gap-3 border-t border-hairline pt-3">
           <span className="text-[13px] font-medium text-brand">View Details -&gt;</span>
-          <span className="shrink-0 font-mono text-[11px] text-slate">
+          <span className="shrink-0 font-sans text-[11px] text-slate">
             {formatShiftTime(doctor.shift_start)} - {formatShiftTime(doctor.shift_end)}
           </span>
         </div>
@@ -183,7 +183,7 @@ export function DoctorCard({ doctor, onDelete }) {
           body={
             <>
               This will delete{' '}
-              <span className="font-semibold text-ink">{doctor.full_name}</span>
+              <span className="font-semibold text-ink">{doctorName}</span>
               's profile from the doctors module.
             </>
           }

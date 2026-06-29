@@ -50,11 +50,13 @@ class DoctorViewSet(viewsets.ModelViewSet):
         if self.action == 'destroy':
             return [IsAuthenticated(), IsAdminRole(), HasFeature('doctors')()]
         if self.action == 'create':
-            return [IsAuthenticated(), HasModuleAccess("doctors", "write"), HasFeature('doctors')()]
-        if self.action in ('update', 'partial_update'):
             return [IsAuthenticated(), IsAdminRole(), HasFeature('doctors')()]
+        if self.action in ('update', 'partial_update'):
+            return [IsAuthenticated(), HasModuleAccess("doctors", "write"), HasFeature('doctors')()]
         if self.action in ('checkin', 'checkout'):
             return [IsAuthenticated(), IsAdminOrReceptionist(), HasFeature('doctors')()]
+        if self.action in ('retrieve', 'stats', 'appointments'):
+            return [IsAuthenticated(), HasModuleAccess("doctors", "read"), HasFeature('doctors')()]
         return [IsAuthenticated(), HasModuleAccess("doctors", "read"), HasFeature('doctors')()]
 
     def get_queryset(self):
@@ -108,7 +110,14 @@ class DoctorViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     def retrieve(self, request, *args, **kwargs):
-        instance = self.get_object()
+        instance = User.objects.filter(
+            id=kwargs.get('pk'),
+            is_active=True,
+            organization=request.user.organization,
+        ).first()
+        if not instance:
+            from rest_framework.exceptions import NotFound
+            raise NotFound('Doctor not found.')
         if request.user.role_slug == 'doctor' and request.user.pk != instance.pk:
             serializer = DoctorListSerializer(instance, context=self.get_serializer_context())
         else:
@@ -121,9 +130,33 @@ class DoctorViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        instance = serializer.save()
-        read_serializer = DoctorListSerializer(instance, context=self.get_serializer_context())
-        return Response(read_serializer.data, status=status.HTTP_201_CREATED)
+        doctor = serializer.save(
+            organization=request.user.organization,
+            role="doctor",
+        )
+
+        email_sent = True
+        try:
+            from users.provisioning import provision_user_account
+            result = provision_user_account(
+                profile=doctor,
+                role_slug="doctor",
+                organization=request.user.organization,
+            )
+            email_sent = result["email_sent"]
+        except ValueError as e:
+            import logging
+            logging.getLogger(__name__).error(
+                f"Account provisioning failed for doctor {doctor.id}: {e}"
+            )
+            email_sent = False
+
+        headers = self.get_success_headers(serializer.data)
+        read_serializer = DoctorListSerializer(doctor, context=self.get_serializer_context())
+        response_data = read_serializer.data
+        response_data["has_account"] = doctor.has_account
+        response_data["email_sent"] = email_sent
+        return Response(response_data, status=status.HTTP_201_CREATED, headers=headers)
 
     def perform_update(self, serializer):
         serializer.save()
@@ -201,7 +234,14 @@ class DoctorViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='stats')
     def stats(self, request, pk=None):
-        doctor = self.get_object()
+        doctor = User.objects.filter(
+            id=pk,
+            is_active=True,
+            organization=request.user.organization,
+        ).first()
+        if not doctor:
+            from rest_framework.exceptions import NotFound
+            raise NotFound('Doctor not found.')
 
         permission = CanViewDoctorFullProfile()
         if not permission.has_object_permission(request, self, doctor):
@@ -302,7 +342,14 @@ class DoctorViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'], url_path='appointments')
     def appointments(self, request, pk=None):
-        doctor = self.get_object()
+        doctor = User.objects.filter(
+            id=pk,
+            is_active=True,
+            organization=request.user.organization,
+        ).first()
+        if not doctor:
+            from rest_framework.exceptions import NotFound
+            raise NotFound('Doctor not found.')
 
         permission = CanViewDoctorFullProfile()
         if not permission.has_object_permission(request, self, doctor):

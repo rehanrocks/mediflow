@@ -1,9 +1,11 @@
 import { useCallback } from 'react'
 
 import { useAuth } from '@shared/context/AuthContext'
-
-const READ_VALUES = new Set(['read', 'both'])
-const WRITE_VALUES = new Set(['write', 'both'])
+import {
+  canReadAccessLevel,
+  canWriteAccessLevel,
+  normalizeAccessLevel,
+} from '@shared/lib/permissions'
 
 export function getUserDoctorId(user) {
   return user?.user_id ?? user?.doctor_id ?? user?.id
@@ -24,10 +26,10 @@ export function usePermission() {
 
   const can = useCallback(
     (module, action) => {
-      const access = permissions?.[module] ?? 'none'
+      const access = normalizeAccessLevel(permissions?.[module])
 
-      if (action === 'read') return READ_VALUES.has(access)
-      if (action === 'write') return WRITE_VALUES.has(access)
+      if (action === 'read') return canReadAccessLevel(access)
+      if (action === 'write') return canWriteAccessLevel(access)
 
       return false
     },
@@ -43,9 +45,9 @@ export function usePermission() {
   const canViewFullDoctorProfile = useCallback(
     (doctorId) =>
       role?.slug === 'admin' ||
-      canRead('doctors') ||
+      role?.slug === 'receptionist' ||
       isOwnDoctorProfile(user, doctorId, role),
-    [canRead, role, user],
+    [role, user],
   )
   const isOwnDoctor = useCallback(
     (doctorId) => isOwnDoctorProfile(user, doctorId, role),

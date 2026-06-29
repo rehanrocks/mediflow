@@ -1,77 +1,75 @@
-/* src/shared/lib/navItems.js - Computes role-aware sidebar navigation. */
+/* src/shared/lib/navItems.js - Computes permission-aware sidebar navigation. */
 import {
-  BadgeCheck,
+  BarChart2,
+  Briefcase,
   CalendarClock,
   LayoutDashboard,
   ShieldCheck,
   Stethoscope,
+  UserCircle,
   Users,
 } from 'lucide-react'
 
-import { ROLES } from './roles'
-
-export function getNavItems(user, hasFeature) {
-  if (!user) {
+export function getNavItems({ canRead, isAdmin, role, user }) {
+  if (!role) {
     return []
   }
 
-  const dashboardPath =
-    user.role === ROLES.DOCTOR
-      ? '/dashboard/doctor'
-      : '/dashboard/admin'
-  const dashboardLabel =
-    user.role === ROLES.DOCTOR ? 'My Dashboard' : 'Dashboard'
+  const isDoctor = role.slug === 'doctor'
+  const dashboardPath = isDoctor ? '/dashboard/doctor' : '/dashboard/general'
+  const dashboardLabel = isDoctor ? 'My Dashboard' : 'Dashboard'
+  const doctorId = user?.id ?? user?.doctor_id
+  const doctorProfilePath = doctorId ? `/doctors/${doctorId}` : null
 
   const items = [
     {
-      to: dashboardPath,
-      label: dashboardLabel,
-      icon: LayoutDashboard,
       end: true,
-      matchPaths: ['/dashboard/admin', '/dashboard/doctor'],
+      icon: LayoutDashboard,
+      label: dashboardLabel,
+      matchPaths: ['/dashboard/general', '/dashboard/admin', '/dashboard/doctor'],
+      to: dashboardPath,
     },
   ]
 
-  if (hasFeature('appointments')) {
+  if (canRead('appointments')) {
     items.push({
-      to: '/appointments',
-      label:
-        user.role === ROLES.DOCTOR
-          ? 'My Appointments'
-          : 'Appointments',
       icon: CalendarClock,
+      label: isDoctor ? 'My Appointments' : 'Appointments',
+      to: '/appointments',
     })
   }
 
-  if (hasFeature('patients')) {
+  if (canRead('patients')) {
     items.push({
-      to: '/patients',
-      label: user.role === ROLES.DOCTOR ? 'My Patients' : 'Patients',
       icon: Users,
+      label: isDoctor ? 'My Patients' : 'Patients',
+      to: '/patients',
     })
   }
 
-  if (hasFeature('doctors') && user.role !== ROLES.DOCTOR) {
+  if (canRead('doctors')) {
+    items.push({ icon: Stethoscope, label: 'Doctors', to: '/doctors' })
+  } else if (isDoctor && doctorProfilePath) {
     items.push({
-      to: '/doctors',
-      label: 'Doctors',
-      icon: Stethoscope,
+      icon: UserCircle,
+      label: 'My Profile',
+      to: doctorProfilePath,
     })
   }
 
-  if (hasFeature('staff') && user.role === ROLES.ADMIN) {
-    items.push({
-      to: '/staff',
-      label: 'Staff',
-      icon: BadgeCheck,
-    })
+  if (canRead('staff')) {
+    items.push({ icon: Briefcase, label: 'Staff', to: '/staff' })
   }
 
-  if (user.role === ROLES.ADMIN) {
+  if (canRead('reports')) {
+    items.push({ icon: BarChart2, label: 'Reports', to: '/reports' })
+  }
+
+  if (isAdmin) {
     items.push({
-      to: '/access-control',
-      label: 'Access Control',
       icon: ShieldCheck,
+      label: 'Access Control',
+      to: '/access-control',
     })
   }
 

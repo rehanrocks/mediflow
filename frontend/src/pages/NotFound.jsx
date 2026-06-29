@@ -8,11 +8,11 @@ export function NotFound() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-mist p-6 text-ink">
       <section className="animate-fade-up flex max-w-[520px] flex-col items-center text-center">
-        <div className="flex h-24 w-24 items-center justify-center rounded-[28px] bg-brand-light text-brand shadow-card">
+        <div className="flex h-24 w-24 items-center justify-center rounded-card bg-brand-light text-brand shadow-card">
           <SearchX aria-hidden="true" className="h-11 w-11" />
         </div>
 
-        <p className="mt-7 font-mono text-[13px] font-semibold text-brand">
+        <p className="mt-7 font-sans text-[13px] font-semibold text-brand">
           404
         </p>
         <h1 className="mt-2 text-center text-[28px] font-bold text-ink">
@@ -22,7 +22,7 @@ export function NotFound() {
           The route you tried to open does not exist in MediFlow.
         </p>
 
-        <p className="mt-5 max-w-full rounded-control bg-canvas px-3 py-1.5 font-mono text-[12px] font-medium text-slate shadow-card">
+        <p className="mt-5 max-w-full rounded-control bg-canvas px-3 py-1.5 font-sans text-[12px] font-medium text-slate shadow-card">
           {location.pathname}
         </p>
 

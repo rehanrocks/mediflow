@@ -4,18 +4,20 @@ import { ChevronLeft } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import DoctorFormFields from '@features/doctors/components/DoctorFormFields'
+import AccountCreatedModal from '@shared/components/AccountCreatedModal'
+import { ErrorBanner, LoadingSpinner } from '@shared/components/FormPrimitives'
 import { useToast } from '@shared/components/Toast'
-import { useAuth } from '@shared/context/AuthContext'
-import { canAddDoctor } from '@shared/lib/permissions'
-import { getBackendError } from '@shared/lib/records'
-import { validatePhone } from '@shared/lib/validation'
+import { getBackendError, getRecordId } from '@shared/lib/records'
+import { usePermission } from '@shared/lib/usePermission'
+import { validateEmail, validatePhone } from '@shared/lib/validation'
 import { createDoctor } from '@shared/services/api'
 
 const INITIAL_FORM_DATA = {
-  full_name: '',
+  first_name: '',
+  last_name: '',
   email: '',
   phone: '',
-  qualification: '',
+  qualifications: [],
   specializations: [],
   experience_years: 0,
   shift_start: '09:00',
@@ -27,10 +29,11 @@ const INITIAL_FORM_DATA = {
 const TOUCHED_ALL = {
   email: true,
   experience_years: true,
-  full_name: true,
+  first_name: true,
   join_date: true,
+  last_name: true,
   phone: true,
-  qualification: true,
+  qualifications: true,
   shift_end: true,
   shift_start: true,
   specializations: true,
@@ -39,25 +42,32 @@ const TOUCHED_ALL = {
 
 function validateDoctorForm(data) {
   const errors = {}
-  const trimmedName = String(data.full_name || '').trim()
+  const firstName = String(data.first_name || '').trim()
+  const lastName = String(data.last_name || '').trim()
   const trimmedEmail = String(data.email || '').trim()
   const phoneError = validatePhone(data.phone)
   const experience = Number(data.experience_years)
 
-  if (trimmedName.length < 2) {
-    errors.full_name = 'Name must be at least 2 characters'
+  if (!firstName) {
+    errors.first_name = 'First name is required'
   }
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-    errors.email = 'Please enter a valid email'
+  if (!lastName) {
+    errors.last_name = 'Last name is required'
+  }
+
+  const emailError = validateEmail(trimmedEmail)
+
+  if (emailError) {
+    errors.email = emailError
   }
 
   if (phoneError) {
     errors.phone = phoneError
   }
 
-  if (!String(data.qualification || '').trim()) {
-    errors.qualification = 'Qualification is required'
+  if (!data.qualifications?.length) {
+    errors.qualifications = 'At least one qualification is required'
   }
 
   if (!data.specializations?.length) {
@@ -78,8 +88,8 @@ function validateDoctorForm(data) {
     errors.shift_end = 'Shift end time is required'
   }
 
-  if (data.shift_start && data.shift_end && data.shift_end <= data.shift_start) {
-    errors.shift_end = 'End time must be after start time'
+  if (data.shift_start && data.shift_end && data.shift_end === data.shift_start) {
+    errors.shift_end = 'End time must be different from start time'
   }
 
   if (!data.status) {
@@ -97,30 +107,30 @@ function validateDoctorForm(data) {
 
 function prepareDoctorPayload(data) {
   return {
-    ...data,
     email: String(data.email || '').trim(),
     experience_years: Number(data.experience_years),
-    full_name: String(data.full_name || '').trim(),
+    first_name: String(data.first_name || '').trim(),
+    last_name: String(data.last_name || '').trim(),
     phone: String(data.phone || '').trim(),
-    qualification: String(data.qualification || '').trim(),
+    qualification_ids: data.qualifications.map((item) => item.id),
     specializations: data.specializations.map((item) => item.trim()),
+    shift_end: data.shift_end,
+    shift_start: data.shift_start,
+    status: data.status,
+    join_date: data.join_date,
   }
 }
 
 export function AddDoctor() {
   const navigate = useNavigate()
   const toast = useToast()
-  const { user } = useAuth()
-  const [data, setData] = useState(INITIAL_FORM_DATA)
-  const [errors, setErrors] = useState({})
-  const [touched, setTouched] = useState({})
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const { isAdmin } = usePermission()
 
   useEffect(() => {
-    if (!canAddDoctor(user)) {
+    if (!isAdmin) {
       navigate('/not-available', { replace: true })
     }
-  }, [navigate, user])
+  }, [isAdmin, navigate])
 
   function handleChange(event) {
     const { name, value } = event.target
@@ -128,6 +138,7 @@ export function AddDoctor() {
       ...currentData,
       [name]: value,
     }))
+    setGeneralError('')
 
     if (errors[name]) {
       setErrors((currentErrors) => ({
@@ -160,10 +171,27 @@ export function AddDoctor() {
 
     try {
       const response = await createDoctor(prepareDoctorPayload(data))
-      toast.success('Doctor added')
-      navigate(`/doctors/${response.id}`)
+      const doctorId = getRecordId(response)
+
+      if (response?.email_sent === false) {
+        toast.warning(
+          'Profile created but email delivery failed. Share credentials manually.',
+        )
+        window.setTimeout(() => {
+          navigate(doctorId ? `/doctors/${doctorId}` : '/doctors', { replace: true })
+        }, 2000)
+        return
+      }
+
+      setCreatedAccount({
+        email: String(data.email || '').trim(),
+        fullName: [data.first_name, data.last_name].filter(Boolean).join(' '),
+        id: doctorId,
+      })
     } catch (error) {
-      toast.error(getBackendError(error, 'Doctor could not be created.'))
+      const message = getBackendError(error, 'Doctor could not be created.')
+      toast.error(message)
+      setGeneralError(message)
       setErrors(error?.response?.data || { general: 'Doctor could not be created.' })
     } finally {
       setIsSubmitting(false)
@@ -202,6 +230,8 @@ export function AddDoctor() {
           touched={touched}
         />
 
+        <ErrorBanner message={generalError} />
+
         <div className="flex gap-3 pt-4">
           <button
             className="flex-1 rounded-control border border-hairline px-4 py-2.5 text-[13px] font-medium text-slate transition hover:bg-mist hover:text-ink"
@@ -211,14 +241,28 @@ export function AddDoctor() {
             Cancel
           </button>
           <button
-            className="flex-1 rounded-control bg-brand px-4 py-2.5 text-[13px] font-medium text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex flex-1 items-center justify-center rounded-control bg-brand px-4 py-2.5 text-[13px] font-medium text-white transition hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={isSubmitting}
             type="submit"
           >
-            {isSubmitting ? 'Adding...' : 'Add Doctor'}
+            {isSubmitting ? <LoadingSpinner light /> : 'Add Doctor'}
           </button>
         </div>
       </form>
+
+      {createdAccount ? (
+        <AccountCreatedModal
+          email={createdAccount.email}
+          entityLabel="Doctor"
+          fullName={createdAccount.fullName}
+          onViewProfile={() =>
+            navigate(
+              createdAccount.id ? `/doctors/${createdAccount.id}` : '/doctors',
+              { replace: true },
+            )
+          }
+        />
+      ) : null}
     </div>
   )
 }

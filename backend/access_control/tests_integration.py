@@ -34,19 +34,19 @@ class FullFlowIntegrationTests(TestCase):
 
         for module, _ in MODULE_CHOICES:
             ModulePermission.objects.get_or_create(
-                role=self.admin_role, module=module, defaults={"access": "both"}
+                role=self.admin_role, module=module, defaults={"access": "full_access"}
             )
         ModulePermission.objects.get_or_create(
-            role=self.receptionist_role, module="patients", defaults={"access": "both"}
+            role=self.receptionist_role, module="patients", defaults={"access": "full_access"}
         )
         ModulePermission.objects.get_or_create(
-            role=self.receptionist_role, module="appointments", defaults={"access": "both"}
+            role=self.receptionist_role, module="appointments", defaults={"access": "full_access"}
         )
         ModulePermission.objects.get_or_create(
-            role=self.receptionist_role, module="doctors", defaults={"access": "both"}
+            role=self.receptionist_role, module="doctors", defaults={"access": "full_access"}
         )
         ModulePermission.objects.get_or_create(
-            role=self.receptionist_role, module="staff", defaults={"access": "none"}
+            role=self.receptionist_role, module="staff", defaults={"access": "no_access"}
         )
         ModulePermission.objects.get_or_create(
             role=self.doctor_role, module="patients", defaults={"access": "read"}
@@ -58,7 +58,7 @@ class FullFlowIntegrationTests(TestCase):
             role=self.doctor_role, module="doctors", defaults={"access": "read"}
         )
         ModulePermission.objects.get_or_create(
-            role=self.doctor_role, module="staff", defaults={"access": "none"}
+            role=self.doctor_role, module="staff", defaults={"access": "no_access"}
         )
 
         self.admin = User.objects.create_user(
@@ -98,7 +98,7 @@ class FullFlowIntegrationTests(TestCase):
             f"/api/access-control/roles/{billing_role_id}/set-permissions/",
             {"permissions": [
                 {"module": "patients", "access": "read"},
-                {"module": "appointments", "access": "both"},
+                {"module": "appointments", "access": "full_access"},
             ]},
             format="json",
         )
@@ -119,8 +119,8 @@ class FullFlowIntegrationTests(TestCase):
         self.assertEqual(login_resp.data["role"], "billing-clerk")
         self.assertIn("permissions", login_resp.data)
         self.assertEqual(login_resp.data["permissions"].get("patients"), "read")
-        self.assertEqual(login_resp.data["permissions"].get("appointments"), "both")
-        self.assertEqual(login_resp.data["permissions"].get("staff"), "none")
+        self.assertEqual(login_resp.data["permissions"].get("appointments"), "full_access")
+        # Unmentioned modules have no entries (treated as no_access by frontend)
 
         # 5. Access: patients list OK (read), create denied (no write)
         billing_client = APIClient()
@@ -161,11 +161,11 @@ class FullFlowIntegrationTests(TestCase):
         resp = admin_client.post(
             f"/api/access-control/roles/{self.admin_role.id}/set-permissions/",
             {"permissions": [
-                {"module": "patients", "access": "both"},
-                {"module": "appointments", "access": "both"},
-                {"module": "doctors", "access": "both"},
-                {"module": "staff", "access": "none"},
-                {"module": "reports", "access": "both"},
+                {"module": "patients", "access": "full_access"},
+                {"module": "appointments", "access": "full_access"},
+                {"module": "doctors", "access": "full_access"},
+                {"module": "staff", "access": "no_access"},
+                {"module": "reports", "access": "full_access"},
             ]},
             format="json",
         )
@@ -183,11 +183,11 @@ class FullFlowIntegrationTests(TestCase):
         admin_client.post(
             f"/api/access-control/roles/{self.admin_role.id}/set-permissions/",
             {"permissions": [
-                {"module": "patients", "access": "both"},
-                {"module": "appointments", "access": "both"},
-                {"module": "doctors", "access": "both"},
-                {"module": "staff", "access": "both"},
-                {"module": "reports", "access": "both"},
+                {"module": "patients", "access": "full_access"},
+                {"module": "appointments", "access": "full_access"},
+                {"module": "doctors", "access": "full_access"},
+                {"module": "staff", "access": "full_access"},
+                {"module": "reports", "access": "full_access"},
             ]},
             format="json",
         )
@@ -201,18 +201,18 @@ class FullFlowIntegrationTests(TestCase):
             "username": "flow_admin", "password": "pass123",
         })
         refresh_token = login_resp.data["refresh"]
-        self.assertEqual(login_resp.data["permissions"].get("staff"), "both")
+        self.assertEqual(login_resp.data["permissions"].get("staff"), "full_access")
 
         # Revoke staff from admin role
         admin_client.force_authenticate(user=self.admin)
         admin_client.post(
             f"/api/access-control/roles/{self.admin_role.id}/set-permissions/",
             {"permissions": [
-                {"module": "patients", "access": "both"},
-                {"module": "appointments", "access": "both"},
-                {"module": "doctors", "access": "both"},
-                {"module": "staff", "access": "none"},
-                {"module": "reports", "access": "both"},
+                {"module": "patients", "access": "full_access"},
+                {"module": "appointments", "access": "full_access"},
+                {"module": "doctors", "access": "full_access"},
+                {"module": "staff", "access": "no_access"},
+                {"module": "reports", "access": "full_access"},
             ]},
             format="json",
         )
@@ -222,12 +222,12 @@ class FullFlowIntegrationTests(TestCase):
             "refresh": refresh_token,
         })
         self.assertEqual(refresh_resp.status_code, 200)
-        self.assertEqual(refresh_resp.data["permissions"].get("staff"), "none")
+        self.assertEqual(refresh_resp.data["permissions"].get("staff"), "no_access")
 
         # Restore
         admin_client.post(
             f"/api/access-control/roles/{self.admin_role.id}/set-permissions/",
-            {"permissions": [{"module": "staff", "access": "both"}]},
+            {"permissions": [{"module": "staff", "access": "full_access"}]},
             format="json",
         )
 
@@ -240,6 +240,7 @@ class FullFlowIntegrationTests(TestCase):
 
         resp = admin_client.post("/api/staff/", {
             "full_name": "Lab Tech",
+            "email": "labtech@flow-clinic.com",
             "age": 30,
             "phone": "+923001234567",
             "role": "X-Ray Technician",
@@ -272,13 +273,14 @@ class FullFlowIntegrationTests(TestCase):
 
         # Create staff first
         staff = StaffMember.objects.create(
-            organization=self.org, full_name="Old Role", age=25,
+            organization=self.org, full_name="Old Role", email="oldrole@flow-clinic.com", age=25,
             phone="+923001111001", role="Nurse", status="active",
             joining_date=timezone.now().date(),
         )
         # Update with new role
         resp = admin_client.put(f"/api/staff/{staff.id}/", {
             "full_name": "Old Role",
+            "email": "oldrole@flow-clinic.com",
             "age": 25,
             "phone": "+923001111001",
             "role": "Triage Nurse",
@@ -303,6 +305,7 @@ class FullFlowIntegrationTests(TestCase):
 
         resp = admin_client.post("/api/staff/", {
             "full_name": "Nurse One",
+            "email": "nurseone@flow-clinic.com",
             "age": 28,
             "phone": "+923002222222",
             "role": "Nurse",
@@ -321,6 +324,7 @@ class FullFlowIntegrationTests(TestCase):
 
         resp = admin_client.post("/api/doctors/", {
             "first_name": "New", "last_name": "Doctor",
+            "email": "frcs@test.com",
             "qualification": "FRCS Neurosurgery",
             "specializations": ["Surgery"],
             "experience_years": 10,
@@ -340,6 +344,7 @@ class FullFlowIntegrationTests(TestCase):
 
         resp = admin_client.post("/api/doctors/", {
             "first_name": "Doc", "last_name": "One",
+            "email": "mbbs@test.com",
             "qualification": "MBBS",
             "specializations": ["General"],
             "experience_years": 5,
@@ -355,13 +360,14 @@ class FullFlowIntegrationTests(TestCase):
 
         resp = admin_client.post("/api/doctors/", {
             "first_name": "Doc", "last_name": "Two",
+            "email": "emptyqual@test.com",
             "qualification": "",
             "specializations": ["General"],
             "experience_years": 5,
             "join_date": "2024-01-01",
         }, format="json")
         self.assertEqual(resp.status_code, 201)
-        doctor = User.objects.get(username__startswith="doc_")
+        doctor = User.objects.get(username="emptyqual@test.com")
         self.assertIsNone(doctor.qualification_obj)
 
     # ─── EDGE CASES ───
@@ -438,8 +444,8 @@ class FullFlowIntegrationTests(TestCase):
         self.assertEqual(self.doctor_role.name, "Doctor")
         self.assertEqual(self.doctor_role.description, "Updated doctor desc")
 
-    def test_set_permissions_unmentioned_modules_become_none(self):
-        """Only mentioning patients=makes doctors, staff, etc. become 'none'."""
+    def test_set_permissions_only_updates_mentioned_modules(self):
+        """Only mentioned modules are updated; others are left untouched."""
         admin_client = APIClient()
         admin_client.force_authenticate(user=self.admin)
 
@@ -456,8 +462,8 @@ class FullFlowIntegrationTests(TestCase):
             for p in ModulePermission.objects.filter(role=custom)
         }
         self.assertEqual(perms.get("patients"), "read")
-        self.assertEqual(perms.get("appointments"), "none")
-        self.assertEqual(perms.get("staff"), "none")
+        self.assertNotIn("appointments", perms)
+        self.assertNotIn("staff", perms)
 
     def test_create_role_duplicate_slug_in_same_org_fails(self):
         """Creating two roles with same slug in same org → 400."""
@@ -563,4 +569,4 @@ class FullFlowIntegrationTests(TestCase):
         self.assertEqual(resp.data["role_detail"]["slug"], "admin")
         self.assertTrue(resp.data["role_detail"]["is_system"])
         self.assertIn("permissions", resp.data)
-        self.assertEqual(resp.data["permissions"]["patients"], "both")
+        self.assertEqual(resp.data["permissions"]["patients"], "full_access")

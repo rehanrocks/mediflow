@@ -33,8 +33,8 @@ class CanViewStaffModule(BasePermission):
             return False
         from access_control.permissions import get_role_permissions
         perms = get_role_permissions(role.id)
-        access = perms.get("staff", "none")
-        return access in ["read", "write", "both"]
+        access = perms.get("staff", "no_access")
+        return access in ["read", "full_access"]
 
 
 class IsAdminOrReceptionist(BasePermission):

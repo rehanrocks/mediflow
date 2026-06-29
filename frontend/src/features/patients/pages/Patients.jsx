@@ -5,9 +5,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import Avatar from '@shared/components/Avatar'
 import ConfirmationModal from '@shared/components/ConfirmationModal'
+import Pagination from '@shared/components/Pagination'
 import SkeletonRow from '@shared/components/SkeletonRow'
 import { useToast } from '@shared/components/Toast'
-import { useAuth } from '@shared/context/AuthContext'
 import {
   formatDate,
   getBackendError,
@@ -15,15 +15,14 @@ import {
   getPatientConditions,
   getPatientName,
   getRecordId,
-  normalizeList,
 } from '@shared/lib/records'
 import { stagger } from '@shared/lib/motion'
 import {
-  canAddPatient,
-  canDeletePatient,
-  canEditPatient,
-  isDoctor,
-} from '@shared/lib/permissions'
+  PAGE_SIZE,
+  normalizePaginatedResponse,
+  pageParams,
+} from '@shared/lib/pagination'
+import { usePermission } from '@shared/lib/usePermission'
 import { deletePatient, getPatients } from '@shared/services/api'
 
 function getPrimaryCondition(patient) {
@@ -33,15 +32,18 @@ function getPrimaryCondition(patient) {
 }
 
 export function Patients() {
-  const { user } = useAuth()
-  const toast = useToast()
   const navigate = useNavigate()
-  const doctorUser = isDoctor(user)
-  const canCreatePatients = canAddPatient(user)
-  const canEditPatients = canEditPatient(user)
-  const canDeletePatients = canDeletePatient(user)
+  const toast = useToast()
+  const { canDelete: canDeleteRecords, canWrite, role, isAdmin } = usePermission()
+
+  const doctorUser = role?.slug === 'doctor'
+  const canCreatePatients = isAdmin
+  const canEditPatients = canWrite('patients')
+  const canDeletePatients = canDeleteRecords()
   const [searchParams, setSearchParams] = useSearchParams()
   const [patients, setPatients] = useState([])
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [isSearching, setIsSearching] = useState(false)
   const [loadError, setLoadError] = useState('')
@@ -51,22 +53,29 @@ export function Patients() {
   const search = searchParams.get('search') || ''
 
   const loadPatients = useCallback(
-    async (searchTerm, isMounted = () => true, initial = false) => {
+    async (searchTerm, pageNumber, isMounted = () => true, initial = false) => {
       if (initial) {
         setIsLoading(true)
       } else {
         setIsSearching(true)
       }
       setLoadError('')
+      setPatients([])
 
       try {
-        const response = await getPatients(searchTerm.trim())
+        const response = await getPatients({
+          ...pageParams(pageNumber),
+          ordering: '-created_at',
+          ...(searchTerm.trim() ? { search: searchTerm.trim() } : {}),
+        })
+        const normalizedResponse = normalizePaginatedResponse(response)
 
         if (!isMounted()) {
           return
         }
 
-        setPatients(normalizeList(response))
+        setPatients(normalizedResponse.results)
+        setTotal(normalizedResponse.count)
       } catch (error) {
         if (!isMounted()) {
           return
@@ -88,14 +97,14 @@ export function Patients() {
     const initial = !hasLoadedRef.current
     hasLoadedRef.current = true
     const debounceId = window.setTimeout(() => {
-      loadPatients(search, () => isMounted, initial)
+      loadPatients(search, page, () => isMounted, initial)
     }, 300)
 
     return () => {
       isMounted = false
       window.clearTimeout(debounceId)
     }
-  }, [loadPatients, search])
+  }, [loadPatients, page, search])
 
   const patientRows = useMemo(
     () =>
@@ -114,12 +123,14 @@ export function Patients() {
   function handleSearchChange(event) {
     const nextSearch = event.target.value.trim()
 
+    setPage(1)
     setSearchParams(nextSearch ? { search: nextSearch } : {}, {
       replace: true,
     })
   }
 
   function clearSearch() {
+    setPage(1)
     setSearchParams({}, { replace: true })
   }
 
@@ -209,7 +220,7 @@ export function Patients() {
           <p className="mt-1 text-[14px] font-normal text-slate">{loadError}</p>
           <button
             className="mt-5 rounded-control border border-hairline bg-canvas px-4 py-2 text-sm font-semibold text-slate transition hover:bg-mist hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:ring-offset-2"
-            onClick={() => loadPatients(search)}
+            onClick={() => loadPatients(search, page)}
             type="button"
           >
             Try again
@@ -242,7 +253,7 @@ export function Patients() {
               </thead>
               <tbody>
                 {isLoading ? (
-                  Array.from({ length: 6 }).map((_, index) => (
+                  Array.from({ length: PAGE_SIZE }).map((_, index) => (
                     <SkeletonRow columns={7} index={index} key={index} />
                   ))
                 ) : patientRows.length === 0 ? (
@@ -285,10 +296,10 @@ export function Patients() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-4 font-mono text-[14px] font-medium text-ink">
+                      <td className="px-5 py-4 font-sans text-[14px] font-medium text-ink">
                         {Number.isFinite(patient.age) ? patient.age : '-'}
                       </td>
-                      <td className="px-5 py-4 font-mono text-[13px] font-medium text-ink">
+                      <td className="px-5 py-4 font-sans text-[13px] font-medium text-ink">
                         {patient.phone}
                       </td>
                       <td
@@ -299,14 +310,14 @@ export function Patients() {
                       >
                         {patient.condition || '-'}
                       </td>
-                      <td className="px-5 py-4 font-mono text-[12px] font-medium text-slate">
+                      <td className="px-5 py-4 font-sans text-[12px] font-medium text-slate">
                         {patient.lastVisit ? (
                           formatDate(patient.lastVisit)
                         ) : (
                           <span className="text-slate/40">-</span>
                         )}
                       </td>
-                      <td className="px-5 py-4 font-mono text-[12px] font-medium text-slate">
+                      <td className="px-5 py-4 font-sans text-[12px] font-medium text-slate">
                         {patient.nextAppointment ? (
                           formatDate(patient.nextAppointment)
                         ) : (
@@ -354,6 +365,11 @@ export function Patients() {
               </tbody>
             </table>
           </div>
+          <Pagination
+            currentPage={page}
+            onPageChange={setPage}
+            totalCount={total}
+          />
         </section>
       )}
 

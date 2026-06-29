@@ -18,15 +18,9 @@ import ProfileHeaderCard from '@features/doctors/components/ProfileHeaderCard'
 import ConfirmationModal from '@shared/components/ConfirmationModal'
 import SkeletonRow from '@shared/components/SkeletonRow'
 import { useToast } from '@shared/components/Toast'
-import { useAuth } from '@shared/context/AuthContext'
-import {
-  canDeleteDoctor,
-  canEditDoctor,
-  canViewFullProfile,
-  isOwnDoctorProfile,
-} from '@shared/lib/permissions'
 import { useCountUp } from '@shared/lib/countUp'
-import { getBackendError } from '@shared/lib/records'
+import { getBackendError, getDoctorName } from '@shared/lib/records'
+import { usePermission } from '@shared/lib/usePermission'
 import { deleteDoctor, getDoctorById, getDoctorStats } from '@shared/services/api'
 
 function StatCard({ context, icon: Icon, label, value }) {
@@ -39,7 +33,7 @@ function StatCard({ context, icon: Icon, label, value }) {
           <p className="text-[11px] font-medium uppercase tracking-wide text-slate">
             {label}
           </p>
-          <p className="mt-2 font-mono text-[30px] font-bold text-ink">
+          <p className="mt-2 font-sans text-[30px] font-bold text-ink">
             {displayValue}
           </p>
           <p className="mt-1 text-[12px] text-slate">{context}</p>
@@ -57,17 +51,22 @@ export function DoctorView() {
   const navigate = useNavigate()
   const toast = useToast()
   const { clearPageMeta, setPageMeta } = useOutletContext()
-  const { user } = useAuth()
+  const {
+    canDelete: canDeleteRecords,
+    canViewFullDoctorProfile,
+    isAdmin,
+    isOwnDoctorProfile,
+  } = usePermission()
   const [doctor, setDoctor] = useState(null)
   const [stats, setStats] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
-  const canEdit = canEditDoctor(user)
-  const canDelete = canDeleteDoctor(user)
-  const canViewFull = canViewFullProfile(user, doctor?.id ?? id)
-  const ownProfile = isOwnDoctorProfile(user, doctor?.id ?? id)
+  const canEdit = isAdmin
+  const canDelete = canDeleteRecords()
+  const canViewFull = canViewFullDoctorProfile(doctor?.id ?? id)
+  const ownProfile = isOwnDoctorProfile(doctor?.id ?? id)
 
   useEffect(() => {
     let mounted = true
@@ -84,7 +83,7 @@ export function DoctorView() {
 
         setDoctor(doctorData)
 
-        if (canViewFullProfile(user, doctorData.id)) {
+        if (canViewFullDoctorProfile(doctorData.id)) {
           try {
             const statsData = await getDoctorStats(id)
 
@@ -118,13 +117,13 @@ export function DoctorView() {
     return () => {
       mounted = false
     }
-  }, [id, toast, user])
+  }, [canViewFullDoctorProfile, id, toast])
 
   useEffect(() => {
     if (!doctor) return undefined
 
     setPageMeta({
-      title: doctor.full_name || 'Doctor Profile',
+      title: getDoctorName(doctor),
       subtitle: doctor.specializations?.[0] || doctor.qualification || 'Doctor profile',
     })
 
@@ -231,7 +230,7 @@ export function DoctorView() {
         </div>
       </div>
 
-      <ProfileHeaderCard currentUser={user} doctor={doctor} />
+      <ProfileHeaderCard doctor={doctor} />
 
       {canViewFull ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -271,12 +270,13 @@ export function DoctorView() {
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-[0.8fr_1.2fr]">
             <CaseTypeBreakdown caseTypesData={stats?.case_types || []} />
             <CasesPerDayChart
+              avgCasesPerDay={doctor.avg_cases_per_day || 0}
               dailyCasesData={stats?.daily_cases || []}
               monthlySummaryData={stats?.monthly_summary || []}
             />
           </div>
 
-          <AppointmentsTable currentUser={user} doctorId={id} />
+          <AppointmentsTable doctorId={id} />
         </>
       ) : null}
 
@@ -285,7 +285,7 @@ export function DoctorView() {
           body={
             <>
               This will delete{' '}
-              <span className="font-semibold text-ink">{doctor.full_name}</span>
+              <span className="font-semibold text-ink">{getDoctorName(doctor)}</span>
               's profile from the doctors module.
             </>
           }

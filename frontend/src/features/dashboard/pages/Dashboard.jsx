@@ -15,8 +15,8 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  ComposedChart,
   Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -25,11 +25,12 @@ import {
 import { Link } from 'react-router-dom'
 
 import SkeletonRow from '@shared/components/SkeletonRow'
+import DarkTooltip from '@shared/components/charts/DarkTooltip'
 import StatusBadge from '@features/appointments/components/StatusBadge'
-import { useAuth } from '@shared/context/AuthContext'
 import { useCountUp } from '@shared/lib/countUp'
 import { stagger } from '@shared/lib/motion'
 import { getPatientAge, getPatientConditions } from '@shared/lib/records'
+import { usePermission } from '@shared/lib/usePermission'
 import { getAppointments, getPatients } from '@shared/services/api'
 
 function normalizeList(response) {
@@ -154,16 +155,16 @@ function StatCard({ context, icon: Icon, index, label, tone, value }) {
     >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-[13px] font-semibold text-slate">{label}</p>
-          <p className="mt-3 animate-count-up text-[30px] font-bold leading-none text-ink">
+          <p className="animate-count-up text-[36px] font-bold leading-none text-ink">
             {count}
           </p>
+          <p className="mt-3 text-[13px] font-medium text-ink">{label}</p>
+          <p className="mt-1 text-[12px] font-normal text-slate">{context}</p>
         </div>
         <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${tone}`}>
           <Icon aria-hidden="true" className="h-[18px] w-[18px]" />
         </div>
       </div>
-      <p className="mt-3 text-[12px] font-semibold text-slate">{context}</p>
     </article>
   )
 }
@@ -201,20 +202,7 @@ function EmptyChart() {
 }
 
 function ChartTooltip({ active, label, payload }) {
-  if (!active || !payload?.length) {
-    return null
-  }
-
-  return (
-    <div className="rounded-xl border border-hairline bg-canvas px-3 py-2 shadow-card">
-      <p className="text-[13px] font-semibold text-ink">{label}</p>
-      {payload.map((item) => (
-        <p className="mt-0.5 text-[13px] font-medium text-slate" key={item.dataKey}>
-          {item.name}: {item.value}
-        </p>
-      ))}
-    </div>
-  )
+  return <DarkTooltip active={active} label={label} payload={payload} />
 }
 
 function Panel({ action, actionTo, children, title }) {
@@ -239,9 +227,9 @@ function Panel({ action, actionTo, children, title }) {
 }
 
 export function Dashboard() {
-  const { hasFeature } = useAuth()
-  const appointmentsEnabled = hasFeature('appointments')
-  const patientsEnabled = hasFeature('patients')
+  const { canRead } = usePermission()
+  const appointmentsEnabled = canRead('appointments')
+  const patientsEnabled = canRead('patients')
   const chartRef = useRef(null)
   const [appointments, setAppointments] = useState([])
   const [patients, setPatients] = useState([])
@@ -337,7 +325,17 @@ export function Dashboard() {
       }
     })
 
-    return days
+    return days.map((day, index, allDays) => {
+      const window = allDays.slice(Math.max(0, index - 6), index + 1)
+      const average =
+        window.reduce((sum, item) => sum + Number(item.appointments || 0), 0) /
+        window.length
+
+      return {
+        ...day,
+        rollingAverage: Number(average.toFixed(1)),
+      }
+    })
   }, [appointments])
 
   const statusData = useMemo(() => {
@@ -493,11 +491,11 @@ export function Dashboard() {
             ) : realAppointmentDays >= 2 ? (
               <div className="h-[260px]" ref={chartRef}>
                 <ResponsiveContainer height="100%" width="100%">
-                  <LineChart data={chartData} margin={{ bottom: 0, left: -18, right: 12, top: 8 }}>
+                  <ComposedChart data={chartData} margin={{ bottom: 0, left: -18, right: 12, top: 8 }}>
                     <CartesianGrid
                       stroke="#E4E8EB"
                       strokeDasharray="4 4"
-                      vertical
+                      vertical={false}
                     />
                     <XAxis
                       axisLine={false}
@@ -518,16 +516,21 @@ export function Dashboard() {
                       tickMargin={10}
                     />
                     <Tooltip content={<ChartTooltip />} cursor={{ stroke: '#E4E8EB' }} />
-                    <Line
-                      activeDot={{ r: 5, strokeWidth: 0 }}
+                    <Bar
                       dataKey="appointments"
-                      dot={false}
+                      fill="#4338CA"
                       name="Appointments"
-                      stroke="#4338CA"
+                      radius={[4, 4, 0, 0]}
+                    />
+                    <Line
+                      dataKey="rollingAverage"
+                      dot={false}
+                      name="7-day average"
+                      stroke="#0D9488"
                       strokeWidth={2.5}
                       type="monotone"
                     />
-                  </LineChart>
+                  </ComposedChart>
                 </ResponsiveContainer>
               </div>
             ) : (
@@ -596,7 +599,7 @@ export function Dashboard() {
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="font-mono text-[12px] font-medium text-slate">
+                      <p className="font-sans text-[12px] font-medium text-slate">
                         {formatTime(appointment.appointment_dt)}
                       </p>
                       <div className="mt-1">
@@ -631,7 +634,7 @@ export function Dashboard() {
                       {getPatientConditions(patient)[0] || 'No condition recorded'}
                     </p>
                   </div>
-                  <p className="font-mono text-[12px] font-medium text-slate">
+                  <p className="font-sans text-[12px] font-medium text-slate">
                     {Number.isFinite(getPatientAge(patient))
                       ? `${getPatientAge(patient)} yrs`
                       : '-'}

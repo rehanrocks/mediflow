@@ -5,21 +5,14 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts'
 
-function rollingAvg(data, window = 7) {
-  return data.map((_, index, array) => {
-    const slice = array.slice(Math.max(0, index - window + 1), index + 1)
-    const avg =
-      slice.reduce((sum, item) => sum + Number(item.count || 0), 0) / slice.length
-
-    return { ...array[index], avg: Number(avg.toFixed(1)) }
-  })
-}
+import DarkTooltip from '@shared/components/charts/DarkTooltip'
 
 function formatDayLabel(value) {
   const date = new Date(value)
@@ -49,21 +42,8 @@ function formatMonthLabel(value) {
   }).format(date)
 }
 
-function CustomTooltip({ active, payload }) {
-  if (!active || !payload?.length) return null
-
-  const item = payload[0].payload
-
-  return (
-    <div className="rounded-xl border border-hairline bg-canvas px-3 py-2.5 shadow-card">
-      <p className="font-mono text-[12px] text-slate">{item.label}</p>
-      <p className="text-[14px] font-semibold text-ink">{item.count} cases</p>
-      <p className="text-[12px] text-slate">Avg: {item.avg}</p>
-    </div>
-  )
-}
-
 export function CasesPerDayChart({
+  avgCasesPerDay = 0,
   dailyCasesData = [],
   monthlySummaryData = [],
 }) {
@@ -71,28 +51,26 @@ export function CasesPerDayChart({
   const [isFading, setIsFading] = useState(false)
 
   const processedData = useMemo(() => {
+    const average = Number(avgCasesPerDay || 0)
+
     if (view === '12m') {
       const source = Array.isArray(monthlySummaryData) ? monthlySummaryData : []
-      return rollingAvg(
-        source.slice(-12).map((item) => ({
-          count: Number(item.count || 0),
-          date: item.month,
-          label: formatMonthLabel(item.month),
-        })),
-        7,
-      )
+      return source.slice(-12).map((item) => ({
+        avg: average,
+        count: Number(item.count || 0),
+        date: item.month,
+        label: formatMonthLabel(item.month),
+      }))
     }
 
     const source = Array.isArray(dailyCasesData) ? dailyCasesData : []
-    return rollingAvg(
-      source.slice(-30).map((item) => ({
-        count: Number(item.count || 0),
-        date: item.date,
-        label: formatDayLabel(item.date),
-      })),
-      7,
-    )
-  }, [dailyCasesData, monthlySummaryData, view])
+    return source.slice(-30).map((item) => ({
+      avg: average,
+      count: Number(item.count || 0),
+      date: item.date,
+      label: formatDayLabel(item.date),
+    }))
+  }, [avgCasesPerDay, dailyCasesData, monthlySummaryData, view])
 
   function handleViewChange(nextView) {
     if (nextView === view) return
@@ -154,7 +132,7 @@ export function CasesPerDayChart({
               <XAxis
                 dataKey="label"
                 interval={view === '30d' ? 4 : 0}
-                tick={{ fill: '#5B6472', fontFamily: 'JetBrains Mono', fontSize: 10 }}
+                tick={{ fill: '#5B6472', fontFamily: 'Outfit, sans-serif', fontSize: 10 }}
                 tickLine={false}
               />
               <YAxis
@@ -162,14 +140,26 @@ export function CasesPerDayChart({
                 tick={{ fill: '#5B6472', fontSize: 10 }}
                 tickLine={false}
               />
-              <Tooltip content={<CustomTooltip />} cursor={{ fill: '#EEF2FF55' }} />
+              <Tooltip content={<DarkTooltip />} cursor={{ fill: '#EEF2FF55' }} />
+              <ReferenceLine
+                y={Number(avgCasesPerDay || 0)}
+                stroke="#F59E0B"
+                strokeDasharray="6 3"
+                label={{
+                  value: `Avg ${Number(avgCasesPerDay || 0)}`,
+                  fill: '#F59E0B',
+                  fontSize: 10,
+                  fontFamily: 'Outfit, sans-serif',
+                }}
+              />
               <Bar dataKey="count" fill="#EEF2FF" name="Daily Cases" radius={[4, 4, 0, 0]} />
               <Line
                 dataKey="avg"
                 dot={false}
-                name="7-Day Average"
-                stroke="#4338CA"
-                strokeWidth={2}
+                name="Career Average"
+                stroke="#F59E0B"
+                strokeDasharray="6 3"
+                strokeWidth={1.5}
                 type="monotone"
               />
             </ComposedChart>
@@ -183,8 +173,8 @@ export function CasesPerDayChart({
           Daily Cases
         </span>
         <span className="inline-flex items-center gap-2">
-          <span className="h-px w-5 bg-brand" />
-          7-Day Average
+          <span className="h-px w-5 border-t border-dashed border-amber-500" />
+          Career Average
         </span>
       </div>
     </section>

@@ -6,7 +6,7 @@ export function DarkTooltip({ active, label, payload }) {
   return (
     <div className="rounded-xl bg-[#14181F] px-3 py-2 text-white shadow-xl">
       {label ? (
-        <p className="font-mono text-[11px] text-white/60">{label}</p>
+        <p className="font-sans text-[11px] text-white/60">{label}</p>
       ) : null}
       <div className={label ? 'mt-1 space-y-0.5' : 'space-y-0.5'}>
         {payload.map((item, index) => (

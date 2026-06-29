@@ -9,12 +9,26 @@ class ModulePermissionSerializer(serializers.ModelSerializer):
         fields = ["module", "access", "can_read", "can_write"]
         read_only_fields = ["can_read", "can_write"]
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if data["access"] in ["write", "both", "read_write"]:
+            data["access"] = "full_access"
+        if data["access"] == "none":
+            data["access"] = "no_access"
+        return data
+
 
 class RoleSerializer(serializers.ModelSerializer):
     module_permissions = ModulePermissionSerializer(many=True, read_only=True)
     user_count = serializers.SerializerMethodField()
 
     def get_user_count(self, obj):
+        request = self.context.get("request")
+        if request and request.user.organization:
+            return obj.users.filter(
+                is_active=True,
+                organization=request.user.organization,
+            ).count()
         return obj.users.filter(is_active=True).count()
 
     class Meta:

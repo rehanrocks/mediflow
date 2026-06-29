@@ -4,11 +4,19 @@ import {
   getStatusTransitionMessage,
   normalizeAppointmentStatus,
 } from './appointmentStatus'
+import { ensureDemoRoleName } from './accessControlData'
 import { computeAge } from './age'
 import { getStaffDataIssues } from './staffUtils'
-import { getPublicTestingUser } from './testingAccess'
+import {
+  getPublicTestingSession,
+  getPublicTestingUser,
+  PUBLIC_ROUTES_FOR_TESTING,
+} from './testingAccess'
+import { validateEmail } from './validation'
 
-const DEMO_STORAGE_KEY = 'mediflow_demo_data_v6'
+const DEMO_STORAGE_KEY = 'mediflow_demo_data_v7'
+const FIXED_TODAY = '2026-06-28'
+const FIXED_TODAY_ISO = '2026-06-28T09:00:00.000Z'
 
 const PATIENTS = [
   {
@@ -122,6 +130,7 @@ const DOCTORS = [
     last_name: 'Patel',
     full_name: 'Nora Patel',
     email: 'nora.patel@clinic.com',
+    has_account: true,
     phone: '+1555010101',
     role: 'doctor',
     status: 'active',
@@ -135,6 +144,7 @@ const DOCTORS = [
       'ENT',
     ],
     join_date: '2018-03-15',
+    created_at: '2024-01-08T09:00:00.000Z',
     shift_start: '09:00',
     shift_end: '17:00',
     today_checkin: addDays(0, 8, 42),
@@ -151,6 +161,7 @@ const DOCTORS = [
     last_name: 'Morris',
     full_name: 'Ethan Morris',
     email: 'ethan.morris@clinic.com',
+    has_account: true,
     phone: '+1555010102',
     role: 'doctor',
     status: 'active',
@@ -164,6 +175,7 @@ const DOCTORS = [
       'Psychiatry',
     ],
     join_date: '2014-07-20',
+    created_at: '2024-01-12T09:00:00.000Z',
     shift_start: '08:00',
     shift_end: '16:00',
     today_checkin: addDays(0, 7, 55),
@@ -180,6 +192,7 @@ const DOCTORS = [
     last_name: 'Reed',
     full_name: 'Leila Reed',
     email: 'leila.reed@clinic.com',
+    has_account: true,
     phone: '+1555010103',
     role: 'doctor',
     status: 'active',
@@ -193,6 +206,7 @@ const DOCTORS = [
       'Ophthalmology',
     ],
     join_date: '2020-01-10',
+    created_at: '2024-02-05T09:00:00.000Z',
     shift_start: '10:00',
     shift_end: '18:00',
     today_checkin: null,
@@ -205,16 +219,28 @@ const DOCTORS = [
   },
 ]
 
+const QUALIFICATIONS = [
+  { id: 1, name: 'MD - Orthopedic Surgery' },
+  { id: 2, name: 'MD - Cardiology' },
+  { id: 3, name: 'MD - Pediatrics' },
+  { id: 4, name: 'MBBS' },
+  { id: 5, name: 'FCPS' },
+]
+
 const STAFF = [
   {
     id: 401,
     full_name: 'Dana Teller',
     age: 34,
     phone: '+1555020101',
+    email: 'dana.teller@clinic.com',
+    has_account: true,
     address: '12 Elm Street, Springfield',
     role: 'Reception Desk',
     status: 'active',
     joining_date: '2021-05-17',
+    shift_start: '09:00',
+    shift_end: '17:00',
     created_at: '2024-01-10T09:15:00.000Z',
     notes: 'Handles front desk intake and appointment coordination.',
   },
@@ -223,10 +249,14 @@ const STAFF = [
     full_name: 'Imran Malik',
     age: 41,
     phone: '+923001112222',
+    email: 'imran.malik@clinic.com',
+    has_account: true,
     address: '45 Clinic Road, Lahore',
     role: 'Ward Boy',
     status: 'active',
     joining_date: '2020-11-02',
+    shift_start: '08:00',
+    shift_end: '16:00',
     created_at: '2024-01-12T10:30:00.000Z',
     notes: 'Assigned to patient movement and ward support.',
   },
@@ -235,10 +265,14 @@ const STAFF = [
     full_name: 'Grace Wilson',
     age: 29,
     phone: '+1555020103',
+    email: 'grace.wilson@clinic.com',
+    has_account: true,
     address: '88 Pine Street, Springfield',
     role: 'Nurse',
     status: 'active',
     joining_date: '2023-08-21',
+    shift_start: '10:00',
+    shift_end: '18:00',
     created_at: '2024-02-03T11:45:00.000Z',
     notes: 'Supports vitals collection before consultations.',
   },
@@ -247,43 +281,179 @@ const STAFF = [
     full_name: 'Farah Ahmed',
     age: 38,
     phone: '+923001113333',
+    email: 'farah.ahmed@clinic.com',
+    has_account: true,
     address: null,
     role: 'Cleaner',
     status: 'inactive',
     joining_date: '2022-02-14',
+    shift_start: '07:00',
+    shift_end: '15:00',
     created_at: '2024-03-08T08:05:00.000Z',
     notes: null,
   },
 ]
 
 function addDays(days, hour, minute = 0) {
-  const date = new Date()
-  date.setHours(hour, minute, 0, 0)
-  date.setDate(date.getDate() + days)
-
+  const date = new Date(FIXED_TODAY_ISO)
+  date.setUTCHours(hour, minute, 0, 0)
+  date.setUTCDate(date.getUTCDate() + days)
   return date.toISOString()
 }
 
 function withPatientDefaults(patient) {
   return {
     ...patient,
-    created_at: patient.created_at || patient.onboarding_date || new Date().toISOString(),
+    created_at: patient.created_at || patient.onboarding_date || FIXED_TODAY_ISO,
   }
 }
 
-function withDoctorDefaults(doctor) {
+function splitQualificationNames(value) {
+  if (!value) {
+    return []
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'object' ? item.name : item))
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+  }
+
+  return String(value)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function normalizeQualificationRecords(records = [], doctors = []) {
+  const seen = new Set()
+  const qualifications = []
+
+  ;[...QUALIFICATIONS, ...records].forEach((qualification) => {
+    const name = String(qualification?.name || qualification || '').trim()
+    const key = name.toLowerCase()
+
+    if (!name || seen.has(key)) {
+      return
+    }
+
+    seen.add(key)
+    qualifications.push({
+      id: Number(qualification?.id) || qualifications.length + 1,
+      name,
+    })
+  })
+
+  doctors.forEach((doctor) => {
+    splitQualificationNames(doctor.qualifications?.length ? doctor.qualifications : doctor.qualification)
+      .forEach((name) => {
+        const key = name.toLowerCase()
+
+        if (!seen.has(key)) {
+          seen.add(key)
+          qualifications.push({
+            id: qualifications.length + 1,
+            name,
+          })
+        }
+      })
+  })
+
+  return qualifications.map((qualification, index) => ({
+    ...qualification,
+    id: Number(qualification.id) || index + 1,
+  }))
+}
+
+function getQualificationObjects(qualifications, value, legacyValue = '') {
+  const ids = Array.isArray(value)
+    ? value
+        .map((item) => (typeof item === 'object' ? item.id : item))
+        .filter((item) => item !== undefined && item !== null)
+    : []
+  const names = Array.isArray(value)
+    ? value
+        .filter((item) => typeof item === 'object' && item.name)
+        .map((item) => item.name)
+    : splitQualificationNames(legacyValue)
+  const selected = []
+
+  ids.forEach((id) => {
+    const match = qualifications.find(
+      (qualification) => String(qualification.id) === String(id),
+    )
+
+    if (match && !selected.some((item) => item.id === match.id)) {
+      selected.push(match)
+    }
+  })
+
+  names.forEach((name) => {
+    const match = qualifications.find(
+      (qualification) =>
+        qualification.name.toLowerCase() === String(name).trim().toLowerCase(),
+    )
+
+    if (match && !selected.some((item) => item.id === match.id)) {
+      selected.push(match)
+    }
+  })
+
+  return selected
+}
+
+function withDoctorDefaults(doctor, qualifications = []) {
+  const firstName = String(doctor.first_name || '').trim()
+  const lastName = String(doctor.last_name || '').trim()
+  const fullName =
+    String(doctor.full_name || '').trim() ||
+    [firstName, lastName].filter(Boolean).join(' ') ||
+    doctor.username ||
+    'Doctor'
+  const selectedQualifications = getQualificationObjects(
+    qualifications,
+    doctor.qualification_ids || doctor.qualifications,
+    doctor.qualification,
+  )
+
   return {
     ...doctor,
+    created_at: doctor.created_at || doctor.join_date || FIXED_TODAY_ISO,
+    first_name: firstName || fullName.split(' ')[0] || '',
+    last_name: lastName || fullName.split(' ').slice(1).join(' ') || '',
+    full_name: fullName,
+    has_account: doctor.has_account === true,
+    qualification: selectedQualifications.map((item) => item.name).join(', ') || doctor.qualification || '',
+    qualifications: selectedQualifications,
     today_checkin:
       doctor.today_checkin === undefined ? null : doctor.today_checkin,
   }
 }
 
+function withStaffDefaults(staffMember) {
+  return {
+    ...staffMember,
+    email: staffMember.email || '',
+    has_account: staffMember.has_account === true,
+    shift_start: staffMember.shift_start ?? null,
+    shift_end: staffMember.shift_end ?? null,
+  }
+}
+
 function normalizeDemoData(data) {
+  const qualifications = normalizeQualificationRecords(
+    data.qualifications,
+    data.doctors || DOCTORS,
+  )
+
   return {
     patients: (data.patients || []).map(withPatientDefaults),
-    doctors: (data.doctors || []).map(withDoctorDefaults),
-    staff: Array.isArray(data.staff) ? data.staff : STAFF,
+    doctors: (data.doctors || []).map((doctor) =>
+      withDoctorDefaults(doctor, qualifications),
+    ),
+    qualifications,
+    staff: (Array.isArray(data.staff) ? data.staff : STAFF).map(withStaffDefaults),
     appointments: Array.isArray(data.appointments) ? data.appointments : [],
   }
 }
@@ -535,6 +705,7 @@ function createInitialDemoData() {
   return normalizeDemoData({
     patients: PATIENTS,
     doctors: DOCTORS,
+    qualifications: QUALIFICATIONS,
     staff: STAFF,
     appointments: createSeedAppointments(),
   })
@@ -600,7 +771,9 @@ function createDemoError(message, status = 400) {
 }
 
 function validateDemoStaff(staffMember) {
-  const issue = getStaffDataIssues(staffMember)[0]
+  const issue =
+    validateEmail(staffMember.email) ||
+    getStaffDataIssues(staffMember)[0]
 
   if (issue) {
     createDemoError(issue)
@@ -610,6 +783,31 @@ function validateDemoStaff(staffMember) {
 function getDate(appointment) {
   const date = new Date(appointment.appointment_dt)
   return Number.isNaN(date.getTime()) ? null : date
+}
+
+function sortAppointmentsByOrdering(appointments, ordering) {
+  if (ordering === '-appointment_dt') {
+    return [...appointments].sort((first, second) => getDate(second) - getDate(first))
+  }
+
+  if (ordering !== 'appointment_dt') {
+    return appointments
+  }
+
+  const now = new Date(FIXED_TODAY_ISO)
+
+  return [...appointments].sort((first, second) => {
+    const firstDate = getDate(first)
+    const secondDate = getDate(second)
+    const firstUpcoming = firstDate && firstDate >= now
+    const secondUpcoming = secondDate && secondDate >= now
+
+    if (firstUpcoming !== secondUpcoming) {
+      return firstUpcoming ? -1 : 1
+    }
+
+    return firstUpcoming ? firstDate - secondDate : secondDate - firstDate
+  })
 }
 
 function getDateKey(value) {
@@ -622,15 +820,34 @@ function getDateKey(value) {
   return date.toISOString().split('T')[0]
 }
 
-function isSameDay(value, reference = new Date()) {
+function isSameDay(value, reference = new Date(FIXED_TODAY_ISO)) {
   return Boolean(value) && getDateKey(value) === getDateKey(reference)
 }
 
 function getStoredDemoUser() {
+  if (PUBLIC_ROUTES_FOR_TESTING) {
+    const session = getPublicTestingSession()
+
+    return session?.user
+      ? {
+          ...session.user,
+          role: session.role?.slug,
+        }
+      : getPublicTestingUser()
+  }
+
   try {
     const storedUser = localStorage.getItem('user')
+    const storedRole = localStorage.getItem('role')
+    const parsedUser = storedUser ? JSON.parse(storedUser) : getPublicTestingUser()
+    const parsedRole = storedRole ? JSON.parse(storedRole) : null
 
-    return storedUser ? JSON.parse(storedUser) : getPublicTestingUser()
+    return parsedUser
+      ? {
+          ...parsedUser,
+          role: parsedRole?.slug ?? parsedUser.role,
+        }
+      : getPublicTestingUser()
   } catch {
     return getPublicTestingUser()
   }
@@ -705,8 +922,8 @@ function decorateAppointment(data, appointment) {
 
 function getRecentDateKeys(days) {
   return Array.from({ length: days }, (_, index) => {
-    const date = new Date()
-    date.setDate(date.getDate() - (days - index - 1))
+    const date = new Date(FIXED_TODAY_ISO)
+    date.setUTCDate(date.getUTCDate() - (days - index - 1))
     return date.toISOString().split('T')[0]
   })
 }
@@ -733,7 +950,7 @@ function decorateDoctor(data, doctor) {
       countCasesForDate(caseAppointments, date) ||
       ((Number(doctor.id) + index) % 5 === 0 ? 2 : (Number(doctor.id) + index) % 3),
   }))
-  const todayKey = new Date().toISOString().split('T')[0]
+  const todayKey = FIXED_TODAY
   const currentMonth = todayKey.slice(0, 7)
   const casesThisMonth = caseAppointments.filter(
     (appointment) => getDateKey(appointment.appointment_dt).slice(0, 7) === currentMonth,
@@ -769,6 +986,47 @@ function normalizeParams(params = '') {
   return params || {}
 }
 
+function buildPagedResponse(items, normalizedParams, basePath) {
+  const hasPageParams =
+    normalizedParams.page !== undefined ||
+    normalizedParams.page_size !== undefined ||
+    normalizedParams.limit !== undefined ||
+    normalizedParams.offset !== undefined
+
+  if (!hasPageParams) {
+    return clone(items)
+  }
+
+  const pageSize = Number(normalizedParams.page_size || normalizedParams.limit || 10)
+  const currentPage = Math.max(Number(normalizedParams.page || 1), 1)
+  const offset =
+    normalizedParams.offset !== undefined
+      ? Number(normalizedParams.offset || 0)
+      : (currentPage - 1) * pageSize
+  const results = items.slice(offset, offset + pageSize)
+  const nextPage = offset + pageSize < items.length ? currentPage + 1 : null
+  const previousPage = offset > 0 ? Math.max(currentPage - 1, 1) : null
+
+  return clone({
+    count: items.length,
+    next: nextPage ? `${basePath}?page=${nextPage}&page_size=${pageSize}` : null,
+    previous: previousPage
+      ? `${basePath}?page=${previousPage}&page_size=${pageSize}`
+      : null,
+    results,
+  })
+}
+
+function compareDateValues(first, second) {
+  const firstDate = new Date(first || '')
+  const secondDate = new Date(second || '')
+
+  return (
+    (Number.isNaN(firstDate.getTime()) ? 0 : firstDate.getTime()) -
+    (Number.isNaN(secondDate.getTime()) ? 0 : secondDate.getTime())
+  )
+}
+
 export function getDemoPatients(params = '') {
   const data = readDemoData()
   const normalizedParams = normalizeParams(params)
@@ -801,7 +1059,18 @@ export function getDemoPatients(params = '') {
     })
   }
 
-  return clone(decoratePatients(data, patients))
+  if (normalizedParams.ordering === '-created_at') {
+    patients = [...patients].sort(
+      (first, second) =>
+        compareDateValues(second.created_at || second.onboarding_date, first.created_at || first.onboarding_date),
+    )
+  }
+
+  return buildPagedResponse(
+    decoratePatients(data, patients),
+    normalizedParams,
+    '/patients/',
+  )
 }
 
 export function getDemoPatient(id) {
@@ -832,8 +1101,8 @@ export function createDemoPatient(patient) {
   const createdPatient = {
     ...patient,
     id: getNextId(data.patients),
-    created_at: new Date().toISOString(),
-    onboarding_date: new Date().toISOString(),
+    created_at: FIXED_TODAY_ISO,
+    onboarding_date: FIXED_TODAY_ISO,
   }
 
   data.patients = [createdPatient, ...data.patients]
@@ -900,8 +1169,6 @@ export function getDemoDoctors(params = {}) {
   const search = String(normalizedParams.search || '').trim().toLowerCase()
   const status = String(normalizedParams.status || '').trim().toLowerCase()
   const specialization = String(normalizedParams.specialization || '').trim()
-  const limit = Number(normalizedParams.limit || 100)
-  const offset = Number(normalizedParams.offset || 0)
   let doctors = data.doctors
     .filter((doctor) => doctor.is_active !== false)
     .map((doctor) => decorateDoctor(data, doctor))
@@ -910,8 +1177,10 @@ export function getDemoDoctors(params = {}) {
     doctors = doctors.filter((doctor) => {
       const searchableText = [
         doctor.full_name,
+        doctor.username,
         doctor.email,
         doctor.qualification,
+        doctor.qualifications?.map((qualification) => qualification.name).join(' '),
         doctor.specializations?.join(' '),
       ]
         .filter(Boolean)
@@ -934,20 +1203,22 @@ export function getDemoDoctors(params = {}) {
     )
   }
 
-  const results = doctors.slice(offset, offset + limit)
+  if (normalizedParams.ordering === '-created_at') {
+    doctors = [...doctors].sort((first, second) =>
+      compareDateValues(
+        second.created_at || second.join_date,
+        first.created_at || first.join_date,
+      ),
+    )
+  } else if (normalizedParams.ordering === 'full_name') {
+    doctors = [...doctors].sort((first, second) =>
+      String(first.full_name || first.username || '').localeCompare(
+        String(second.full_name || second.username || ''),
+      ),
+    )
+  }
 
-  return clone({
-    count: doctors.length,
-    next:
-      offset + limit < doctors.length
-        ? `/doctors/?offset=${offset + limit}&limit=${limit}`
-        : null,
-    previous:
-      offset > 0
-        ? `/doctors/?offset=${Math.max(0, offset - limit)}&limit=${limit}`
-        : null,
-    results,
-  })
+  return buildPagedResponse(doctors, normalizedParams, '/doctors/')
 }
 
 export function getDemoDoctorById(id) {
@@ -968,12 +1239,29 @@ export function createDemoDoctor(doctor) {
   const data = readDemoData()
   const normalizedEmail = String(doctor.email || '').trim().toLowerCase()
   const normalizedPhone = String(doctor.phone || '').trim()
+  const qualifications = getQualificationObjects(
+    data.qualifications,
+    doctor.qualification_ids || doctor.qualifications,
+    doctor.qualification,
+  )
+  const firstName = String(doctor.first_name || '').trim()
+  const lastName = String(doctor.last_name || '').trim()
+  const emailError = validateEmail(normalizedEmail)
+
+  if (emailError) {
+    createDemoError(emailError)
+  }
 
   if (
     data.doctors.some(
       (currentDoctor) =>
         currentDoctor.is_active !== false &&
         String(currentDoctor.email || '').trim().toLowerCase() === normalizedEmail,
+    ) ||
+    data.staff.some(
+      (currentStaff) =>
+        currentStaff.is_deleted !== true &&
+        String(currentStaff.email || '').trim().toLowerCase() === normalizedEmail,
     )
   ) {
     createDemoError('Email already registered')
@@ -989,9 +1277,21 @@ export function createDemoDoctor(doctor) {
     createDemoError('Phone already registered')
   }
 
+  const createdAt = FIXED_TODAY_ISO
   const createdDoctor = {
     ...doctor,
     id: getNextId(data.doctors),
+    created_at: createdAt,
+    first_name: firstName,
+    last_name: lastName,
+    full_name:
+      [firstName, lastName].filter(Boolean).join(' ') ||
+      String(doctor.full_name || '').trim() ||
+      doctor.username ||
+      'Doctor',
+    has_account: true,
+    qualification: qualifications.map((qualification) => qualification.name).join(', '),
+    qualifications,
     today_checkin: null,
     cases_today: 0,
     cases_this_week: 0,
@@ -1004,7 +1304,10 @@ export function createDemoDoctor(doctor) {
   data.doctors = [createdDoctor, ...data.doctors]
   writeDemoData(data)
 
-  return clone(decorateDoctor(data, createdDoctor))
+  return clone({
+    ...decorateDoctor(data, createdDoctor),
+    email_sent: true,
+  })
 }
 
 export function updateDemoDoctor(id, doctor) {
@@ -1012,6 +1315,18 @@ export function updateDemoDoctor(id, doctor) {
   const doctorId = String(id)
   const normalizedEmail = String(doctor.email || '').trim().toLowerCase()
   const normalizedPhone = String(doctor.phone || '').trim()
+  const qualifications = getQualificationObjects(
+    data.qualifications,
+    doctor.qualification_ids || doctor.qualifications,
+    doctor.qualification,
+  )
+  const firstName = String(doctor.first_name || '').trim()
+  const lastName = String(doctor.last_name || '').trim()
+  const emailError = validateEmail(normalizedEmail)
+
+  if (emailError) {
+    createDemoError(emailError)
+  }
 
   if (
     data.doctors.some(
@@ -1019,6 +1334,11 @@ export function updateDemoDoctor(id, doctor) {
         currentDoctor.is_active !== false &&
         String(currentDoctor.id) !== doctorId &&
         String(currentDoctor.email || '').trim().toLowerCase() === normalizedEmail,
+    ) ||
+    data.staff.some(
+      (currentStaff) =>
+        currentStaff.is_deleted !== true &&
+        String(currentStaff.email || '').trim().toLowerCase() === normalizedEmail,
     )
   ) {
     createDemoError('Email already registered')
@@ -1045,6 +1365,15 @@ export function updateDemoDoctor(id, doctor) {
     updatedDoctor = {
       ...currentDoctor,
       ...doctor,
+      first_name: firstName,
+      last_name: lastName,
+      full_name:
+        [firstName, lastName].filter(Boolean).join(' ') ||
+        String(doctor.full_name || currentDoctor.full_name || '').trim() ||
+        currentDoctor.username ||
+        'Doctor',
+      qualification: qualifications.map((qualification) => qualification.name).join(', '),
+      qualifications,
     }
 
     return updatedDoctor
@@ -1072,7 +1401,7 @@ export function deleteDemoDoctor(id) {
     deletedDoctor = {
       ...currentDoctor,
       is_active: false,
-      deleted_at: new Date().toISOString(),
+      deleted_at: FIXED_TODAY_ISO,
     }
 
     return deletedDoctor
@@ -1087,6 +1416,44 @@ export function deleteDemoDoctor(id) {
   return { id }
 }
 
+export function getDemoQualifications() {
+  const data = readDemoData()
+
+  return clone(
+    [...data.qualifications].sort((first, second) =>
+      first.name.localeCompare(second.name),
+    ),
+  )
+}
+
+export function createDemoQualification(name) {
+  const data = readDemoData()
+  const trimmedName = String(name || '').trim()
+
+  if (!trimmedName) {
+    createDemoError('Qualification name is required')
+  }
+
+  const existing = data.qualifications.find(
+    (qualification) =>
+      qualification.name.toLowerCase() === trimmedName.toLowerCase(),
+  )
+
+  if (existing) {
+    return clone(existing)
+  }
+
+  const qualification = {
+    id: getNextId(data.qualifications),
+    name: trimmedName,
+  }
+
+  data.qualifications = [...data.qualifications, qualification]
+  writeDemoData(data)
+
+  return clone(qualification)
+}
+
 export function getDemoStaff(params = {}) {
   const data = readDemoData()
   const normalizedParams = normalizeParams(params)
@@ -1094,14 +1461,13 @@ export function getDemoStaff(params = {}) {
   const phone = String(normalizedParams.phone || '').trim()
   const status = String(normalizedParams.status || '').trim().toLowerCase()
   const role = String(normalizedParams.role || '').trim().toLowerCase()
-  const limit = Number(normalizedParams.limit || 100)
-  const offset = Number(normalizedParams.offset || 0)
   let staff = data.staff.filter((staffMember) => staffMember.is_deleted !== true)
 
   if (search) {
     staff = staff.filter((staffMember) => {
       const searchableText = [
         staffMember.full_name,
+        staffMember.email,
         staffMember.phone,
         staffMember.address,
         staffMember.role,
@@ -1134,20 +1500,13 @@ export function getDemoStaff(params = {}) {
     )
   }
 
-  const results = staff.slice(offset, offset + limit)
+  if (normalizedParams.ordering === '-joining_date') {
+    staff = [...staff].sort((first, second) =>
+      compareDateValues(second.joining_date, first.joining_date),
+    )
+  }
 
-  return clone({
-    count: staff.length,
-    next:
-      offset + limit < staff.length
-        ? `/staff/?offset=${offset + limit}&limit=${limit}`
-        : null,
-    previous:
-      offset > 0
-        ? `/staff/?offset=${Math.max(0, offset - limit)}&limit=${limit}`
-        : null,
-    results,
-  })
+  return buildPagedResponse(staff, normalizedParams, '/staff/')
 }
 
 export function getDemoStaffById(id) {
@@ -1166,14 +1525,31 @@ export function getDemoStaffById(id) {
 
 export function createDemoStaff(staffMember) {
   const data = readDemoData()
+  const normalizedEmail = String(staffMember.email || '').trim().toLowerCase()
   const normalizedPhone = String(staffMember.phone || '').trim()
-  const createdAt = new Date().toISOString()
+  const roleResult = ensureDemoRoleName(staffMember.role)
+  const createdAt = FIXED_TODAY_ISO
   const nextStaffMember = {
     ...staffMember,
     created_at: createdAt,
   }
 
   validateDemoStaff(nextStaffMember)
+
+  if (
+    data.staff.some(
+      (currentStaff) =>
+        currentStaff.is_deleted !== true &&
+        String(currentStaff.email || '').trim().toLowerCase() === normalizedEmail,
+    ) ||
+    data.doctors.some(
+      (currentDoctor) =>
+        currentDoctor.is_active !== false &&
+        String(currentDoctor.email || '').trim().toLowerCase() === normalizedEmail,
+    )
+  ) {
+    createDemoError('Email already registered')
+  }
 
   if (
     data.staff.some(
@@ -1189,21 +1565,47 @@ export function createDemoStaff(staffMember) {
     ...staffMember,
     id: getNextId(data.staff),
     age: Number(staffMember.age),
+    email: normalizedEmail,
+    has_account: true,
     address: staffMember.address || null,
     notes: staffMember.notes || null,
+    shift_start: staffMember.shift_start || null,
+    shift_end: staffMember.shift_end || null,
     created_at: createdAt,
   }
 
   data.staff = [createdStaff, ...data.staff]
   writeDemoData(data)
 
-  return clone(createdStaff)
+  return clone({
+    ...createdStaff,
+    email_sent: true,
+    role_created: roleResult.created,
+  })
 }
 
 export function updateDemoStaff(id, staffMember) {
   const data = readDemoData()
   const staffId = String(id)
+  const normalizedEmail = String(staffMember.email || '').trim().toLowerCase()
   const normalizedPhone = String(staffMember.phone || '').trim()
+  const roleResult = ensureDemoRoleName(staffMember.role)
+
+  if (
+    data.staff.some(
+      (currentStaff) =>
+        currentStaff.is_deleted !== true &&
+        String(currentStaff.id) !== staffId &&
+        String(currentStaff.email || '').trim().toLowerCase() === normalizedEmail,
+    ) ||
+    data.doctors.some(
+      (currentDoctor) =>
+        currentDoctor.is_active !== false &&
+        String(currentDoctor.email || '').trim().toLowerCase() === normalizedEmail,
+    )
+  ) {
+    createDemoError('Email already registered')
+  }
 
   if (
     data.staff.some(
@@ -1227,8 +1629,11 @@ export function updateDemoStaff(id, staffMember) {
       ...currentStaff,
       ...staffMember,
       age: Number(staffMember.age),
+      email: normalizedEmail,
       address: staffMember.address || null,
       notes: staffMember.notes || null,
+      shift_start: staffMember.shift_start || null,
+      shift_end: staffMember.shift_end || null,
     }
 
     validateDemoStaff(nextStaffMember)
@@ -1243,7 +1648,10 @@ export function updateDemoStaff(id, staffMember) {
 
   writeDemoData(data)
 
-  return clone(updatedStaff)
+  return clone({
+    ...updatedStaff,
+    role_created: roleResult.created,
+  })
 }
 
 export function deleteDemoStaff(id) {
@@ -1259,7 +1667,7 @@ export function deleteDemoStaff(id) {
     deletedStaff = {
       ...currentStaff,
       is_deleted: true,
-      deleted_at: new Date().toISOString(),
+      deleted_at: FIXED_TODAY_ISO,
     }
 
     return deletedStaff
@@ -1277,8 +1685,6 @@ export function deleteDemoStaff(id) {
 export function getDemoAppointments(params = {}) {
   const data = readDemoData()
   const normalizedParams = normalizeParams(params)
-  const limitProvided = normalizedParams.limit !== undefined
-  const offsetProvided = normalizedParams.offset !== undefined
   let appointments = scopeAppointmentsForCurrentDoctor(data.appointments)
 
   if (normalizedParams.patient) {
@@ -1301,36 +1707,13 @@ export function getDemoAppointments(params = {}) {
     )
   }
 
-  if (normalizedParams.ordering === '-appointment_dt') {
-    appointments = [...appointments].sort((first, second) => getDate(second) - getDate(first))
-  } else if (normalizedParams.ordering === 'appointment_dt') {
-    appointments = [...appointments].sort((first, second) => getDate(first) - getDate(second))
-  }
+  appointments = sortAppointmentsByOrdering(appointments, normalizedParams.ordering)
 
   const decoratedAppointments = appointments.map((appointment) =>
     decorateAppointment(data, appointment),
   )
 
-  if (!limitProvided && !offsetProvided) {
-    return clone(decoratedAppointments)
-  }
-
-  const limit = Number(normalizedParams.limit || 10)
-  const offset = Number(normalizedParams.offset || 0)
-  const results = decoratedAppointments.slice(offset, offset + limit)
-
-  return clone({
-    count: decoratedAppointments.length,
-    next:
-      offset + limit < decoratedAppointments.length
-        ? `/appointments/?offset=${offset + limit}&limit=${limit}`
-        : null,
-    previous:
-      offset > 0
-        ? `/appointments/?offset=${Math.max(0, offset - limit)}&limit=${limit}`
-        : null,
-    results,
-  })
+  return buildPagedResponse(decoratedAppointments, normalizedParams, '/appointments/')
 }
 
 export function getDemoAppointment(id) {
@@ -1363,7 +1746,7 @@ export function bookDemoAppointment(appointment) {
     payment_status: appointment.payment_status || 'unpaid',
     status: appointment.status || 'scheduled',
     booked_by_name: 'Dana Teller',
-    booked_at: new Date().toISOString(),
+    booked_at: FIXED_TODAY_ISO,
   }
 
   data.appointments = [bookedAppointment, ...data.appointments]
@@ -1468,8 +1851,8 @@ export function getDemoDoctorStats(doctorId) {
       ((Number(doctorId) + index) % 5 === 0 ? 2 : (Number(doctorId) + index) % 3),
   }))
   const monthlySummary = Array.from({ length: 12 }, (_, index) => {
-    const date = new Date()
-    date.setMonth(date.getMonth() - (11 - index), 1)
+    const date = new Date(FIXED_TODAY_ISO)
+    date.setUTCMonth(date.getUTCMonth() - (11 - index), 1)
     const month = date.toISOString().slice(0, 7)
     const appointmentCount = doctorAppointments.filter(
       (appointment) => getDateKey(appointment.appointment_dt).slice(0, 7) === month,
@@ -1528,29 +1911,17 @@ export function getDemoDoctorAppointments(doctorId, params = {}) {
     )
   }
 
-  if (normalizedParams.ordering === '-appointment_dt') {
-    appointments = [...appointments].sort((first, second) => getDate(second) - getDate(first))
-  } else if (normalizedParams.ordering === 'appointment_dt') {
-    appointments = [...appointments].sort((first, second) => getDate(first) - getDate(second))
-  }
+  appointments = sortAppointmentsByOrdering(appointments, normalizedParams.ordering)
 
-  // Return paginated results
-  const limit = Number(normalizedParams.limit || 10)
-  const offset = Number(normalizedParams.offset || 0)
-  const results = appointments.slice(offset, offset + limit)
-
-  return {
-    count: appointments.length,
-    next:
-      offset + limit < appointments.length
-        ? `/doctors/${doctorId}/appointments/?offset=${offset + limit}&limit=${limit}`
-        : null,
-    previous:
-      offset > 0
-        ? `/doctors/${doctorId}/appointments/?offset=${Math.max(0, offset - limit)}&limit=${limit}`
-        : null,
-    results: clone(results),
-  }
+  return buildPagedResponse(
+    appointments,
+    {
+      page: 1,
+      page_size: 10,
+      ...normalizedParams,
+    },
+    `/doctors/${doctorId}/appointments/`,
+  )
 }
 
 export function resetDemoData() {

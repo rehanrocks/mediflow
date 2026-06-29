@@ -10,6 +10,7 @@ class StaffMember(models.Model):
         related_name='staff_members',
     )
     full_name = models.CharField(max_length=150)
+    email = models.EmailField()
     age = models.PositiveIntegerField()
     phone = models.CharField(max_length=20)
     address = models.TextField(blank=True, default='')
@@ -20,6 +21,14 @@ class StaffMember(models.Model):
         default='active',
     )
     joining_date = models.DateField()
+    has_account = models.BooleanField(default=False)
+    user = models.OneToOneField(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='staff_profile',
+    )
     notes = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -27,8 +36,8 @@ class StaffMember(models.Model):
         ordering = ['-created_at']
 
     def clean(self):
-        if self.age < 1 or self.age > 100:
-            raise ValidationError({'age': 'Age must be between 1 and 100.'})
+        if self.age < 18 or self.age > 60:
+            raise ValidationError({'age': 'Age must be between 18 and 60.'})
 
         if self.joining_date > timezone.localdate():
             raise ValidationError({'joining_date': 'Joining date cannot be in the future.'})

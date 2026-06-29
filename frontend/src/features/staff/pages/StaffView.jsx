@@ -15,9 +15,7 @@ import SkeletonRow from '@shared/components/SkeletonRow'
 import { useToast } from '@shared/components/Toast'
 import RoleBadge from '@shared/components/staff/RoleBadge'
 import StaffStatusBadge from '@shared/components/staff/StaffStatusBadge'
-import { useAuth } from '@shared/context/AuthContext'
 import { stagger } from '@shared/lib/motion'
-import { canManageStaff, canViewStaff } from '@shared/lib/permissions'
 import { formatDate, formatDateTime, getBackendError } from '@shared/lib/records'
 import {
   computeTenure,
@@ -26,6 +24,8 @@ import {
   getStaffDataIssues,
   getStaffJoiningDateError,
 } from '@shared/lib/staffUtils'
+import { formatShiftRange } from '@shared/lib/timeUtils'
+import { usePermission } from '@shared/lib/usePermission'
 import { deleteStaff, getStaffById } from '@shared/services/api'
 
 function DetailItem({ children, label }) {
@@ -39,18 +39,39 @@ function DetailItem({ children, label }) {
   )
 }
 
+function normalizeStaffResponse(response) {
+  if (!response || typeof response !== 'object') {
+    return null
+  }
+
+  if (response.data && typeof response.data === 'object') {
+    return normalizeStaffResponse(response.data)
+  }
+
+  if (response.staff && typeof response.staff === 'object') {
+    return normalizeStaffResponse(response.staff)
+  }
+
+  if (response.staff_member && typeof response.staff_member === 'object') {
+    return normalizeStaffResponse(response.staff_member)
+  }
+
+  return response
+}
+
 export function StaffView() {
   const { id } = useParams()
   const navigate = useNavigate()
   const toast = useToast()
-  const { clearPageMeta, setPageMeta } = useOutletContext()
-  const { user } = useAuth()
+  const outletContext = useOutletContext()
+  const { canDelete, canRead, canWrite } = usePermission()
   const [staffMember, setStaffMember] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
-  const canManage = canManageStaff(user)
+  const canManage = canWrite('staff')
+  const canRemove = canDelete()
   const notes = String(staffMember?.notes || '').trim()
   const dataIssues = staffMember ? getStaffDataIssues(staffMember) : []
   const ageIssue = staffMember ? getStaffAgeError(staffMember.age) : ''
@@ -62,10 +83,10 @@ export function StaffView() {
     : ''
 
   useEffect(() => {
-    if (!canViewStaff(user)) {
+    if (!canRead('staff')) {
       navigate('/not-available', { replace: true })
     }
-  }, [navigate, user])
+  }, [canRead, navigate])
 
   useEffect(() => {
     let mounted = true
@@ -76,9 +97,11 @@ export function StaffView() {
 
       try {
         const response = await getStaffById(id)
+        const staffRecord = normalizeStaffResponse(response)
 
         if (mounted) {
-          setStaffMember(response)
+          setStaffMember(staffRecord)
+          setNotFound(!staffRecord)
         }
       } catch (error) {
         if (!mounted) return
@@ -106,7 +129,7 @@ export function StaffView() {
   useEffect(() => {
     if (!staffMember) return undefined
 
-    setPageMeta({
+    outletContext?.setPageMeta?.({
       title: staffMember.full_name || 'Staff Profile',
       subtitle: (
         <span className="inline-flex items-center gap-2">
@@ -116,8 +139,8 @@ export function StaffView() {
       ),
     })
 
-    return clearPageMeta
-  }, [clearPageMeta, setPageMeta, staffMember])
+    return outletContext?.clearPageMeta
+  }, [outletContext, staffMember])
 
   async function handleConfirmDelete() {
     setIsDeleting(true)
@@ -181,24 +204,28 @@ export function StaffView() {
           Back to staff
         </button>
 
-        {canManage ? (
+        {canManage || canRemove ? (
           <div className="flex flex-wrap gap-2">
-            <button
-              className="inline-flex h-9 items-center rounded-control border border-brand/20 bg-brand-light px-3 text-[13px] font-semibold text-brand transition hover:border-brand/40"
-              onClick={() => navigate(`/staff/${id}/edit`)}
-              type="button"
-            >
-              <Pencil aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-              Edit
-            </button>
-            <button
-              className="inline-flex h-9 items-center rounded-control border border-rose-200 bg-rose-50 px-3 text-[13px] font-semibold text-rose-600 transition hover:bg-rose-100"
-              onClick={() => setDeleteOpen(true)}
-              type="button"
-            >
-              <Trash2 aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
-              Delete
-            </button>
+            {canManage ? (
+              <button
+                className="inline-flex h-9 items-center rounded-control border border-brand/20 bg-brand-light px-3 text-[13px] font-semibold text-brand transition hover:border-brand/40"
+                onClick={() => navigate(`/staff/${id}/edit`)}
+                type="button"
+              >
+                <Pencil aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+                Edit
+              </button>
+            ) : null}
+            {canRemove ? (
+              <button
+                className="inline-flex h-9 items-center rounded-control border border-rose-200 bg-rose-50 px-3 text-[13px] font-semibold text-rose-600 transition hover:bg-rose-100"
+                onClick={() => setDeleteOpen(true)}
+                type="button"
+              >
+                <Trash2 aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
+                Delete
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -243,8 +270,13 @@ export function StaffView() {
         <div className="px-6 py-5">
           <div className="grid gap-x-8 gap-y-6 sm:grid-cols-2">
             <DetailItem label="Phone">
-              <p className="font-mono text-[14px] font-semibold text-ink">
+              <p className="font-sans text-[14px] font-semibold text-ink">
                 {staffMember.phone || '-'}
+              </p>
+            </DetailItem>
+            <DetailItem label="Email">
+              <p className="font-sans text-[14px] font-semibold text-ink">
+                {staffMember.email || '-'}
               </p>
             </DetailItem>
             <DetailItem label="Age">
@@ -253,12 +285,12 @@ export function StaffView() {
                   <p className="text-[14px] font-semibold text-rose-600">
                     Needs review
                   </p>
-                  <p className="mt-1 font-mono text-[11px] text-slate">
+                  <p className="mt-1 font-sans text-[11px] text-slate">
                     Recorded value: {staffMember.age}
                   </p>
                 </>
               ) : (
-                <p className="font-mono text-[14px] font-semibold text-ink">
+                <p className="font-sans text-[14px] font-semibold text-ink">
                   {staffMember.age} yrs
                 </p>
               )}
@@ -274,13 +306,13 @@ export function StaffView() {
                   <p className="text-[14px] font-semibold text-rose-600">
                     Check joined date
                   </p>
-                  <p className="mt-1 font-mono text-[11px] text-slate">
+                  <p className="mt-1 font-sans text-[11px] text-slate">
                     Recorded: {formatDate(staffMember.joining_date)}
                   </p>
                 </>
               ) : (
                 <>
-                  <p className="font-mono text-[13px] font-semibold text-ink">
+                  <p className="font-sans text-[13px] font-semibold text-ink">
                     {formatDate(staffMember.joining_date)}
                   </p>
                   <p className="mt-1 text-[11px] text-slate">
@@ -289,8 +321,13 @@ export function StaffView() {
                 </>
               )}
             </DetailItem>
+            <DetailItem label="Working Hours">
+              <p className="font-sans text-[13px] font-semibold text-ink">
+                {formatShiftRange(staffMember.shift_start, staffMember.shift_end)}
+              </p>
+            </DetailItem>
             <DetailItem label="Added to system">
-              <p className="font-mono text-[11px] text-slate">
+              <p className="font-sans text-[11px] text-slate">
                 {formatDateTime(staffMember.created_at)}
               </p>
               {createdIssue ? (

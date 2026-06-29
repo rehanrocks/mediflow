@@ -5,9 +5,11 @@ from organizations.models import Organization, Feature, OrganizationFeature
 from users.models import User
 from appointments.models import Patient, Appointment
 
+FIXED_TODAY = date(2026, 6, 28)
+
 
 class Command(BaseCommand):
-    help = 'Seeds the database with demo data matching the frontend seed data'
+    help = 'Seeds the database with deterministic demo data matching the frontend'
 
     def handle(self, *args, **options):
         self.stdout.write('Seeding database...')
@@ -26,19 +28,18 @@ class Command(BaseCommand):
                 organization=org, feature=feature, defaults={'is_enabled': True}
             )
 
-        admin_user, _ = User.objects.get_or_create(
-            username='dana',
-            defaults={
-                'email': 'dana@downtownclinic.com',
-                'first_name': 'Dana',
-                'last_name': 'Teller',
-                'role': 'receptionist',
-                'organization': org,
-                'is_staff': True,
-            }
-        )
-        admin_user.set_password('password123')
-        admin_user.save()
+        admin_user = User.objects.filter(username='dana').first()
+        if not admin_user:
+            admin_user = User.objects.create_user(
+                username='dana',
+                password='password123',
+                email='dana@downtownclinic.com',
+                first_name='Dana',
+                last_name='Teller',
+                role='receptionist',
+                organization=org,
+                is_staff=True,
+            )
 
         doctor_data = [
             {'username': 'nora', 'first_name': 'Nora', 'last_name': 'Patel', 'email': 'nora@downtownclinic.com'},
@@ -47,18 +48,17 @@ class Command(BaseCommand):
         ]
         doctors = {}
         for dd in doctor_data:
-            doctor, _ = User.objects.get_or_create(
-                username=dd['username'],
-                defaults={
-                    'email': dd['email'],
-                    'first_name': dd['first_name'],
-                    'last_name': dd['last_name'],
-                    'role': 'doctor',
-                    'organization': org,
-                }
-            )
-            doctor.set_password('password123')
-            doctor.save()
+            doctor = User.objects.filter(username=dd['username']).first()
+            if not doctor:
+                doctor = User.objects.create_user(
+                    username=dd['username'],
+                    password='password123',
+                    email=dd['email'],
+                    first_name=dd['first_name'],
+                    last_name=dd['last_name'],
+                    role='doctor',
+                    organization=org,
+                )
             doctors[dd['first_name'].lower()] = doctor
 
         patient_data = [
@@ -132,12 +132,12 @@ class Command(BaseCommand):
             )
             patients[pd['full_name']] = patient
 
-        now = timezone.now()
+        anchor = timezone.make_aware(datetime.combine(FIXED_TODAY, datetime.min.time()))
 
         appointment_data = [
             {
                 'patient': 'Maria Garcia', 'doctor': 'nora',
-                'appointment_dt': now - timedelta(days=28),
+                'appointment_dt': anchor - timedelta(days=28),
                 'reason': 'Surgical recovery review', 'status': 'completed',
                 'temperature': '37.1', 'blood_pressure': '118/76',
                 'diagnosis': 'Stable post-operative recovery.',
@@ -151,7 +151,7 @@ class Command(BaseCommand):
             },
             {
                 'patient': 'Robert Johnson', 'doctor': 'ethan',
-                'appointment_dt': now - timedelta(days=18),
+                'appointment_dt': anchor - timedelta(days=18),
                 'reason': 'Glucose control check', 'status': 'completed',
                 'temperature': '36.8', 'blood_pressure': '132/84',
                 'diagnosis': 'Diabetes follow-up with mild elevation in fasting readings.',
@@ -165,7 +165,7 @@ class Command(BaseCommand):
             },
             {
                 'patient': 'Aisha Khan', 'doctor': 'nora',
-                'appointment_dt': now - timedelta(days=7),
+                'appointment_dt': anchor - timedelta(days=7),
                 'reason': 'Blood pressure follow-up', 'status': 'completed',
                 'temperature': '', 'blood_pressure': '126/82',
                 'diagnosis': 'Blood pressure improving.',
@@ -179,62 +179,64 @@ class Command(BaseCommand):
             },
             {
                 'patient': 'Daniel Turner', 'doctor': 'leila',
-                'appointment_dt': now + timedelta(days=1),
+                'appointment_dt': anchor + timedelta(days=1),
                 'reason': 'Routine physical', 'status': 'scheduled',
                 'temperature': '', 'blood_pressure': '',
                 'notes': '', 'payment_status': 'unpaid',
             },
             {
                 'patient': 'Mei Lin', 'doctor': 'ethan',
-                'appointment_dt': now + timedelta(days=2),
+                'appointment_dt': anchor + timedelta(days=2),
                 'reason': 'Cough and breathing concerns', 'status': 'scheduled',
                 'temperature': '37.2', 'blood_pressure': '',
                 'notes': 'Patient asked for afternoon slot.', 'payment_status': 'unpaid',
             },
             {
                 'patient': 'Omar Hassan', 'doctor': 'leila',
-                'appointment_dt': now + timedelta(days=3),
+                'appointment_dt': anchor + timedelta(days=3),
                 'reason': 'Cardiology intake', 'status': 'scheduled',
                 'temperature': '', 'blood_pressure': '140/90',
                 'notes': 'Bring previous ECG records.', 'payment_status': 'paid',
             },
             {
                 'patient': 'Maria Garcia', 'doctor': 'nora',
-                'appointment_dt': now + timedelta(days=8),
+                'appointment_dt': anchor + timedelta(days=8),
                 'reason': 'Mobility progress check', 'status': 'scheduled',
                 'temperature': '', 'blood_pressure': '',
                 'notes': '', 'payment_status': 'unpaid',
             },
         ]
 
-        Appointment.objects.filter(organization=org).delete()
-        appointments_to_create = []
-        for ad in appointment_data:
-            patient = patients.get(ad['patient'])
-            doctor = doctors.get(ad['doctor'])
-            if patient and doctor:
-                appointments_to_create.append(Appointment(
-                    organization=org,
-                    booked_by=admin_user,
-                    patient=patient,
-                    doctor=doctor,
-                    appointment_dt=ad['appointment_dt'],
-                    reason=ad.get('reason', ''),
-                    status=ad.get('status', 'scheduled'),
-                    notes=ad.get('notes', ''),
-                    temperature=ad.get('temperature', ''),
-                    blood_pressure=ad.get('blood_pressure', ''),
-                    diagnosis=ad.get('diagnosis', ''),
-                    treatment_plan=ad.get('treatment_plan', ''),
-                    medications_prescribed=ad.get('medications_prescribed', []),
-                    precautions=ad.get('precautions', []),
-                    medical_activity=ad.get('medical_activity', []),
-                    post_scheduling_notes=ad.get('post_scheduling_notes', ''),
-                    additional_notes=ad.get('additional_notes', ''),
-                    payment_status=ad.get('payment_status', 'unpaid'),
-                ))
+        if Appointment.objects.filter(organization=org).exists():
+            self.stdout.write('  Appointments for Downtown Clinic already exist, skipping')
+        else:
+            appointments_to_create = []
+            for ad in appointment_data:
+                patient = patients.get(ad['patient'])
+                doctor = doctors.get(ad['doctor'])
+                if patient and doctor:
+                    appointments_to_create.append(Appointment(
+                        organization=org,
+                        booked_by=admin_user,
+                        patient=patient,
+                        doctor=doctor,
+                        appointment_dt=ad['appointment_dt'],
+                        reason=ad.get('reason', ''),
+                        status=ad.get('status', 'scheduled'),
+                        notes=ad.get('notes', ''),
+                        temperature=ad.get('temperature', ''),
+                        blood_pressure=ad.get('blood_pressure', ''),
+                        diagnosis=ad.get('diagnosis', ''),
+                        treatment_plan=ad.get('treatment_plan', ''),
+                        medications_prescribed=ad.get('medications_prescribed', []),
+                        precautions=ad.get('precautions', []),
+                        medical_activity=ad.get('medical_activity', []),
+                        post_scheduling_notes=ad.get('post_scheduling_notes', ''),
+                        additional_notes=ad.get('additional_notes', ''),
+                        payment_status=ad.get('payment_status', 'unpaid'),
+                    ))
 
-        Appointment.objects.bulk_create(appointments_to_create)
+            Appointment.objects.bulk_create(appointments_to_create)
 
         self.stdout.write(self.style.SUCCESS(
             f'Seeded: {Organization.objects.count()} org, '

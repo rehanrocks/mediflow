@@ -148,6 +148,7 @@ class DoctorAPITests(APITestCase):
         self._login('admin1')
         resp = self.client.post('/api/doctors/', {
             'first_name': 'Bad', 'last_name': 'Shift',
+            'email': 'badshift@test.com',
             'specializations': ['General'],
             'shift_start': '17:00', 'shift_end': '08:00',
         }, format='json')
@@ -158,6 +159,7 @@ class DoctorAPITests(APITestCase):
         self._login('admin1')
         resp = self.client.post('/api/doctors/', {
             'first_name': 'No', 'last_name': 'Spec',
+            'email': 'nospec@test.com',
             'specializations': [],
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
@@ -167,6 +169,7 @@ class DoctorAPITests(APITestCase):
         self._login('admin1')
         resp = self.client.post('/api/doctors/', {
             'first_name': 'Dup', 'last_name': 'Phone',
+            'email': 'dupphone@test.com',
             'phone': '+1111111111',
             'specializations': ['General'],
         }, format='json')
@@ -176,6 +179,7 @@ class DoctorAPITests(APITestCase):
         self._login('admin3')
         resp = self.client.post('/api/doctors/', {
             'first_name': 'Other', 'last_name': 'Org',
+            'email': 'otherorg@test.com',
             'phone': '+1111111111',
             'specializations': ['General'],
         }, format='json')

@@ -69,25 +69,27 @@ class StaffAPITests(TestCase):
             organization=cls.riverside,
         )
 
-        for entry in [
-            {'full_name': 'Rashid Ali', 'age': 34, 'phone': '+923011111001',
+        entries = [
+            {'full_name': 'Rashid Ali', 'email': 'staff1@downtown.com', 'age': 34, 'phone': '+923011111001',
              'role': 'Ward Boy', 'status': 'active', 'joining_date': date(2020, 6, 1),
              'address': 'House 5, Block A, Lahore'},
-            {'full_name': 'Nazia Bibi', 'age': 28, 'phone': '+923011111002',
+            {'full_name': 'Nazia Bibi', 'email': 'staff2@downtown.com', 'age': 28, 'phone': '+923011111002',
              'role': 'Nurse', 'status': 'active', 'joining_date': date(2022, 3, 15),
              'address': 'Flat 3, DHA Phase 4, Lahore', 'notes': 'Night shift preference'},
-            {'full_name': 'Tariq Mehmood', 'age': 45, 'phone': '+923011111003',
+            {'full_name': 'Tariq Mehmood', 'email': 'staff3@downtown.com', 'age': 45, 'phone': '+923011111003',
              'role': 'Security Guard', 'status': 'active', 'joining_date': date(2018, 1, 10)},
-            {'full_name': 'Shabana Kausar', 'age': 31, 'phone': '+923011111004',
+            {'full_name': 'Shabana Kausar', 'email': 'staff4@downtown.com', 'age': 31, 'phone': '+923011111004',
              'role': 'Sweeper', 'status': 'inactive', 'joining_date': date(2021, 8, 20),
              'notes': 'On extended leave'},
-            {'full_name': 'Imran Hassan', 'age': 26, 'phone': '+923011111005',
+            {'full_name': 'Imran Hassan', 'email': 'staff5@downtown.com', 'age': 26, 'phone': '+923011111005',
              'role': 'Nurse', 'status': 'active', 'joining_date': date(2023, 11, 5),
              'address': 'Johar Town, Lahore'},
-        ]:
+        ]
+        for entry in entries:
             StaffMember.objects.create(
                 organization=cls.downtown,
                 full_name=entry['full_name'],
+                email=entry['email'],
                 age=entry['age'],
                 phone=entry['phone'],
                 address=entry.get('address', ''),
@@ -100,6 +102,7 @@ class StaffAPITests(TestCase):
         cls.riverside_staff = StaffMember.objects.create(
             organization=cls.riverside,
             full_name='Riverside Staffer',
+            email='riverside@riverside.com',
             age=30,
             phone='+923019999999',
             role='Nurse',
@@ -148,6 +151,7 @@ class StaffAPITests(TestCase):
     def test_07_create_as_receptionist_denied(self):
         response = self._client(self.receptionist_downtown).post('/api/staff/', {
             'full_name': 'Test Staff',
+            'email': 'teststaff@downtown.com',
             'age': 25,
             'phone': '+923011111006',
             'role': 'Nurse',
@@ -159,6 +163,7 @@ class StaffAPITests(TestCase):
     def test_08_create_valid(self):
         response = self._client(self.admin_downtown).post('/api/staff/', {
             'full_name': 'New Staff Member',
+            'email': 'newstaff@downtown.com',
             'age': 30,
             'phone': '+923011111010',
             'address': 'Test Address',
@@ -183,6 +188,7 @@ class StaffAPITests(TestCase):
     def test_09_create_age_zero(self):
         response = self._client(self.admin_downtown).post('/api/staff/', {
             'full_name': 'Zero Age',
+            'email': 'zeroage@downtown.com',
             'age': 0,
             'phone': '+923011111011',
             'role': 'Nurse',
@@ -195,6 +201,7 @@ class StaffAPITests(TestCase):
     def test_10_create_age_101(self):
         response = self._client(self.admin_downtown).post('/api/staff/', {
             'full_name': 'Old Age',
+            'email': 'oldage@downtown.com',
             'age': 101,
             'phone': '+923011111012',
             'role': 'Nurse',
@@ -209,6 +216,7 @@ class StaffAPITests(TestCase):
         tomorrow = date.today() + timedelta(days=1)
         response = self._client(self.admin_downtown).post('/api/staff/', {
             'full_name': 'Future Joiner',
+            'email': 'future@downtown.com',
             'age': 25,
             'phone': '+923011111013',
             'role': 'Nurse',
@@ -221,6 +229,7 @@ class StaffAPITests(TestCase):
     def test_12_create_empty_role(self):
         response = self._client(self.admin_downtown).post('/api/staff/', {
             'full_name': 'No Role',
+            'email': 'norole@downtown.com',
             'age': 25,
             'phone': '+923011111014',
             'role': '',
@@ -233,6 +242,7 @@ class StaffAPITests(TestCase):
     def test_13_create_whitespace_role(self):
         response = self._client(self.admin_downtown).post('/api/staff/', {
             'full_name': 'Whitespace Role',
+            'email': 'wsrole@downtown.com',
             'age': 25,
             'phone': '+923011111015',
             'role': '   ',
@@ -245,6 +255,7 @@ class StaffAPITests(TestCase):
     def test_14_create_padded_role(self):
         response = self._client(self.admin_downtown).post('/api/staff/', {
             'full_name': 'Padded Role',
+            'email': 'paddedrole@downtown.com',
             'age': 25,
             'phone': '+923011111016',
             'role': '  Nurse  ',
@@ -257,6 +268,7 @@ class StaffAPITests(TestCase):
     def test_15_phone_duplicate_same_org(self):
         response = self._client(self.admin_downtown).post('/api/staff/', {
             'full_name': 'Duplicate Phone',
+            'email': 'dupphone@downtown.com',
             'age': 25,
             'phone': '+923011111002',
             'role': 'Nurse',
@@ -269,6 +281,7 @@ class StaffAPITests(TestCase):
     def test_16_phone_duplicate_different_org(self):
         Response = self._client(self.admin_downtown).post('/api/staff/', {
             'full_name': 'Cross Org Phone',
+            'email': 'crossorg@downtown.com',
             'age': 25,
             'phone': '+923019999999',
             'role': 'Nurse',
@@ -280,6 +293,7 @@ class StaffAPITests(TestCase):
     def test_17_invalid_phone_format(self):
         response = self._client(self.admin_downtown).post('/api/staff/', {
             'full_name': 'Bad Phone',
+            'email': 'badphone@downtown.com',
             'age': 25,
             'phone': '03001234567',
             'role': 'Nurse',

@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
 from django.utils import timezone
-from datetime import timedelta, date, time
+from datetime import date, datetime, timedelta, time
 from organizations.models import Organization, Feature, OrganizationFeature
 from users.models import User, DoctorAttendance
 from appointments.models import Patient, Appointment
@@ -8,9 +8,27 @@ from staff.models import StaffMember
 from access_control.models import Role, ModulePermission, MODULE_CHOICES
 from users.models import Qualification
 
+FIXED_TODAY = date(2026, 6, 28)
+
+
+def _det_value(seed_a, seed_b, index, max_val):
+    return ((seed_a * 2654435761 + seed_b * 7919 + index * 6271) & 0x7FFFFFFF) % (max_val + 1)
+
+
+def _det_choice(seed_a, seed_b, index, choices):
+    return choices[_det_value(seed_a, seed_b, index, len(choices) - 1)]
+
+
+def _det_bool(seed_a, seed_b, index):
+    return _det_value(seed_a, seed_b, index, 100) < 50
+
+
+def _det_float(seed_a, seed_b, index):
+    return _det_value(seed_a, seed_b, index, 100) / 100.0
+
 
 class Command(BaseCommand):
-    help = 'Seed demo data — idempotent, org-aware'
+    help = 'Seed deterministic demo data — idempotent, org-aware'
 
     def handle(self, *args, **kwargs):
         self.stdout.write('Seeding demo data...\n')
@@ -31,13 +49,18 @@ class Command(BaseCommand):
         self.stdout.write('\n=== Role Access Summary ===')
         self.stdout.write('-' * 55)
         self.stdout.write('ADMIN         -> Full access to all modules')
-        self.stdout.write('RECEPTIONIST  -> Patients (add/edit), Appointments (add/edit),')
-        self.stdout.write('                 Doctors (view+add, not edit/delete),')
-        self.stdout.write('                 NO staff access, NO dashboard/admin features')
+        self.stdout.write('RECEPTIONIST  -> Patients (full_access), Appointments (full_access),')
+        self.stdout.write('                 Doctors (full_access), Reports (read),')
+        self.stdout.write('                 NO staff access')
         self.stdout.write('DOCTOR        -> Own appointments (read-only),')
         self.stdout.write('                 Own patients (read-only),')
         self.stdout.write('                 Own dashboard only')
+        self.stdout.write('HEAD NURSE    -> Patients (full_access), Appointments (full_access),')
+        self.stdout.write('                 Doctors (read), Reports (read),')
+        self.stdout.write('                 NO staff access')
         self.stdout.write('-' * 55)
+        self.stdout.write('\nSeed complete. Emails set on doctors and staff (has_account=False).')
+        self.stdout.write('To test provisioning: POST /api/doctors/ or /api/staff/ with email field.')
 
     def _create_organizations(self):
         downtown, _ = Organization.objects.get_or_create(
@@ -138,20 +161,20 @@ class Command(BaseCommand):
             )
 
         SYSTEM_PERMISSIONS = {
-            "admin": {m: "both" for m, _ in MODULE_CHOICES},
+            "admin": {m: "full_access" for m, _ in MODULE_CHOICES},
             "receptionist": {
-                "patients": "both",
-                "appointments": "both",
-                "doctors": "both",
-                "staff": "none",
+                "patients": "full_access",
+                "appointments": "full_access",
+                "doctors": "full_access",
+                "staff": "no_access",
                 "reports": "read",
             },
             "doctor": {
                 "patients": "read",
                 "appointments": "read",
                 "doctors": "read",
-                "staff": "none",
-                "reports": "none",
+                "staff": "no_access",
+                "reports": "no_access",
             },
         }
 
@@ -173,10 +196,10 @@ class Command(BaseCommand):
             }
         )
         for module, access in [
-            ("patients", "both"),
-            ("appointments", "both"),
+            ("patients", "full_access"),
+            ("appointments", "full_access"),
             ("doctors", "read"),
-            ("staff", "none"),
+            ("staff", "no_access"),
             ("reports", "read"),
         ]:
             ModulePermission.objects.update_or_create(
@@ -300,45 +323,46 @@ class Command(BaseCommand):
             doc1 = User.objects.get(username='doc1_downtown-clinic')
             doc2 = User.objects.get(username='doc2_downtown-clinic')
             rec = User.objects.get(username='rec1_downtown-clinic')
-            now = timezone.now()
-            future = now + timedelta(hours=2)
+            anchor = timezone.make_aware(datetime.combine(FIXED_TODAY, datetime.min.time()))
 
-            Appointment.objects.create(
-                organization=downtown,
-                patient=p1,
-                doctor=doc1,
-                booked_by=rec,
-                appointment_dt=future,
-                reason='Blood pressure checkup',
-                status=Appointment.Status.SCHEDULED,
-            )
-            Appointment.objects.create(
-                organization=downtown,
-                patient=p2,
-                doctor=doc2,
-                booked_by=rec,
-                appointment_dt=future + timedelta(hours=2),
-                reason='Migraine follow-up',
-                status=Appointment.Status.IN_PROGRESS,
-            )
-            Appointment.objects.create(
-                organization=downtown,
-                patient=p3,
-                doctor=doc1,
-                booked_by=rec,
-                appointment_dt=future + timedelta(days=1),
-                reason='Diabetes management',
-                status=Appointment.Status.SCHEDULED,
-            )
-            Appointment.objects.create(
-                organization=downtown,
-                patient=p1,
-                doctor=doc2,
-                booked_by=rec,
-                appointment_dt=future + timedelta(days=1, hours=4),
-                reason='General checkup',
-                status=Appointment.Status.CANCELLED,
-            )
+            Appointment.objects.bulk_create([
+                Appointment(
+                    organization=downtown,
+                    patient=p1,
+                    doctor=doc1,
+                    booked_by=rec,
+                    appointment_dt=anchor + timedelta(hours=10),
+                    reason='Blood pressure checkup',
+                    status=Appointment.Status.SCHEDULED,
+                ),
+                Appointment(
+                    organization=downtown,
+                    patient=p2,
+                    doctor=doc2,
+                    booked_by=rec,
+                    appointment_dt=anchor + timedelta(hours=12),
+                    reason='Migraine follow-up',
+                    status=Appointment.Status.IN_PROGRESS,
+                ),
+                Appointment(
+                    organization=downtown,
+                    patient=p3,
+                    doctor=doc1,
+                    booked_by=rec,
+                    appointment_dt=anchor + timedelta(days=1, hours=9),
+                    reason='Diabetes management',
+                    status=Appointment.Status.SCHEDULED,
+                ),
+                Appointment(
+                    organization=downtown,
+                    patient=p1,
+                    doctor=doc2,
+                    booked_by=rec,
+                    appointment_dt=anchor + timedelta(days=1, hours=14),
+                    reason='General checkup',
+                    status=Appointment.Status.CANCELLED,
+                ),
+            ])
             self.stdout.write(f'  Created 4 appointments for Downtown Clinic')
 
         self.stdout.write('  Skipped appointments for Riverside Medical (no patients pre-seeded for appointment creation)')
@@ -353,7 +377,6 @@ class Command(BaseCommand):
         return q
 
     def _seed_doctors(self, orgs):
-        import random
         downtown = orgs['downtown']
         reasons = [
             'Chest Pain', 'Fever', 'Routine Checkup', 'Follow Up',
@@ -365,6 +388,7 @@ class Command(BaseCommand):
         if doc1:
             doc1.first_name = 'Ahmed'
             doc1.last_name = 'Khan'
+            doc1.email = 'dr.ahmed@downtown-demo.com'
             doc1.phone = '+923001234567'
             doc1.qualification = 'MBBS, FCPS (Cardiology)'
             doc1.qualification_obj = self._ensure_qualification('MBBS, FCPS (Cardiology)')
@@ -381,6 +405,7 @@ class Command(BaseCommand):
         if doc2:
             doc2.first_name = 'Sana'
             doc2.last_name = 'Malik'
+            doc2.email = 'dr.sana@downtown-demo.com'
             doc2.phone = '+923007654321'
             doc2.qualification = 'MBBS, MCPS'
             doc2.qualification_obj = self._ensure_qualification('MBBS, MCPS')
@@ -397,36 +422,34 @@ class Command(BaseCommand):
             self.stdout.write('  Skipping doctor attendance + appointments (doctors not found)')
             return
 
-        today = timezone.localdate()
-
         for doctor in [doc1, doc2]:
             if DoctorAttendance.objects.filter(doctor=doctor).exists():
                 self.stdout.write(f'  Attendance already exists for {doctor.first_name}, skipping')
                 continue
 
-            day = today - timedelta(days=29)
-            absent_days = set()
-            while len(absent_days) < 2:
-                d = today - timedelta(days=random.randint(0, 29))
-                if d.weekday() < 5:
-                    absent_days.add(d)
+            doctor_seed = doctor.pk
+            day_start = FIXED_TODAY - timedelta(days=29)
+            absent_indices = [5, 20] if doctor_seed % 2 == 1 else [8, 24]
 
-            while day <= today:
+            day = day_start
+            day_index = 0
+            while day <= FIXED_TODAY:
                 if day.weekday() >= 5:
                     day += timedelta(days=1)
+                    day_index += 1
                     continue
 
-                if day in absent_days:
+                if day_index in absent_indices:
                     DoctorAttendance.objects.create(
                         doctor=doctor,
                         organization=downtown,
                         date=day,
                     )
                 else:
-                    is_late = random.choice([True, False])
+                    is_late = day_index % 3 == 0
                     chk_in = doctor.shift_start
                     if is_late:
-                        late_minutes = random.randint(5, 30)
+                        late_minutes = 5 + (day_index * 7) % 26
                         h = doctor.shift_start.hour
                         m = doctor.shift_start.minute + late_minutes
                         if m >= 60:
@@ -442,30 +465,30 @@ class Command(BaseCommand):
                         checkout_time=doctor.shift_end,
                     )
                 day += timedelta(days=1)
+                day_index += 1
             self.stdout.write(f'  Created 14-day attendance for {doctor.first_name}')
 
         for doctor in [doc1, doc2]:
             existing = Appointment.objects.filter(
                 doctor=doctor,
                 organization=downtown,
-            ).exclude(
-                patient__in=Patient.objects.filter(organization=downtown)[:3]
             ).count()
-            if existing >= 10:
+            if existing >= 5:
                 self.stdout.write(f'  Extra appointments for {doctor.first_name} already exist, skipping')
                 continue
 
             patients = list(Patient.objects.filter(organization=downtown))
+            doctor_seed = doctor.pk
             appts = []
             for i in range(20):
-                appt_date = today - timedelta(days=random.randint(0, 29))
-                hour = random.randint(9, 17)
-                minute = random.choice([0, 15, 30, 45])
+                past_day = FIXED_TODAY - timedelta(days=(i * 3 + doctor_seed * 7) % 30)
+                hour = 9 + (i + doctor_seed * 11) % 9
+                minute = [0, 15, 30, 45][i % 4]
                 appt_dt = timezone.make_aware(
-                    timezone.datetime(appt_date.year, appt_date.month, appt_date.day, hour, minute)
+                    datetime(past_day.year, past_day.month, past_day.day, hour, minute)
                 )
 
-                r = random.random()
+                r = _det_float(doctor_seed, i, 1)
                 if r < 0.7:
                     st = 'completed'
                 elif r < 0.8:
@@ -473,22 +496,24 @@ class Command(BaseCommand):
                 else:
                     st = 'scheduled'
 
-                reason = random.choice(reasons)
-                diagnosis = random.choice(diagnoses) if st == 'completed' else ''
+                reason = _det_choice(doctor_seed, i, 2, reasons)
+                diagnosis = _det_choice(doctor_seed, i, 3, diagnoses) if st == 'completed' else ''
+                patient = _det_choice(doctor_seed, i, 4, patients)
+                payment = _det_choice(doctor_seed, i, 5, ['paid', 'unpaid'])
 
                 appts.append(Appointment(
                     organization=downtown,
-                    patient=random.choice(patients),
+                    patient=patient,
                     doctor=doctor,
                     appointment_dt=appt_dt,
                     reason=reason,
                     status=st,
                     diagnosis=diagnosis,
                     treatment_plan='Standard treatment protocol' if st == 'completed' else '',
-                    payment_status=random.choice(['paid', 'unpaid']),
+                    payment_status=payment,
                 ))
             Appointment.objects.bulk_create(appts)
-            self.stdout.write(f'  Created 20 extra appointments for {doctor.first_name}')
+            self.stdout.write(f'  Created 20 deterministic appointments for {doctor.first_name}')
 
         self.stdout.write('  Doctors seeded: Ahmed Khan, Sana Malik — org: Downtown Clinic')
 
@@ -502,6 +527,7 @@ class Command(BaseCommand):
         staff_list = [
             {
                 'full_name': 'Rashid Ali',
+                'email': 'rashid@downtown-demo.com',
                 'age': 34,
                 'phone': '+923011111001',
                 'role': 'Ward Boy',
@@ -511,6 +537,7 @@ class Command(BaseCommand):
             },
             {
                 'full_name': 'Nazia Bibi',
+                'email': 'nazia@downtown-demo.com',
                 'age': 28,
                 'phone': '+923011111002',
                 'role': 'Nurse',
@@ -521,6 +548,7 @@ class Command(BaseCommand):
             },
             {
                 'full_name': 'Tariq Mehmood',
+                'email': 'tariq@downtown-demo.com',
                 'age': 45,
                 'phone': '+923011111003',
                 'role': 'Security Guard',
@@ -530,6 +558,7 @@ class Command(BaseCommand):
             },
             {
                 'full_name': 'Shabana Kausar',
+                'email': 'shabana@downtown-demo.com',
                 'age': 31,
                 'phone': '+923011111004',
                 'role': 'Sweeper',
@@ -540,6 +569,7 @@ class Command(BaseCommand):
             },
             {
                 'full_name': 'Imran Hassan',
+                'email': 'imran@downtown-demo.com',
                 'age': 26,
                 'phone': '+923011111005',
                 'role': 'Nurse',
@@ -553,6 +583,7 @@ class Command(BaseCommand):
             StaffMember.objects.create(
                 organization=downtown,
                 full_name=entry['full_name'],
+                email=entry['email'],
                 age=entry['age'],
                 phone=entry['phone'],
                 address=entry.get('address', ''),

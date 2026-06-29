@@ -36,19 +36,19 @@ class AccessControlTests(TestCase):
 
         for module, _ in MODULE_CHOICES:
             ModulePermission.objects.create(
-                role=self.admin_role, module=module, access="both"
+                role=self.admin_role, module=module, access="full_access"
             )
         ModulePermission.objects.create(
-            role=self.receptionist_role, module="patients", access="both"
+            role=self.receptionist_role, module="patients", access="full_access"
         )
         ModulePermission.objects.create(
-            role=self.receptionist_role, module="appointments", access="both"
+            role=self.receptionist_role, module="appointments", access="full_access"
         )
         ModulePermission.objects.create(
-            role=self.receptionist_role, module="doctors", access="both"
+            role=self.receptionist_role, module="doctors", access="full_access"
         )
         ModulePermission.objects.create(
-            role=self.receptionist_role, module="staff", access="none"
+            role=self.receptionist_role, module="staff", access="no_access"
         )
         ModulePermission.objects.create(
             role=self.receptionist_role, module="reports", access="read"
@@ -63,10 +63,10 @@ class AccessControlTests(TestCase):
             role=self.doctor_role, module="doctors", access="read"
         )
         ModulePermission.objects.create(
-            role=self.doctor_role, module="staff", access="none"
+            role=self.doctor_role, module="staff", access="no_access"
         )
         ModulePermission.objects.create(
-            role=self.doctor_role, module="reports", access="none"
+            role=self.doctor_role, module="reports", access="no_access"
         )
 
         self.admin_user = User.objects.create_user(
@@ -175,18 +175,18 @@ class AccessControlTests(TestCase):
         self.assertEqual(self.admin_role.description, "Updated desc")
 
     def test_set_permissions_on_admin_role(self):
-        """6b. set-permissions on admin role → 200, staff=none in DB."""
+        """6b. set-permissions on admin role → 200, staff=no_access in DB."""
         self._authenticate(self.admin_user)
         response = self.client.post(
             f"/api/access-control/roles/{self.admin_role.id}/set-permissions/",
-            {"permissions": [{"module": "staff", "access": "none"}]},
+            {"permissions": [{"module": "staff", "access": "no_access"}]},
             format="json",
         )
         self.assertEqual(response.status_code, 200)
         staff_perm = ModulePermission.objects.get(
             role=self.admin_role, module="staff"
         )
-        self.assertEqual(staff_perm.access, "none")
+        self.assertEqual(staff_perm.access, "no_access")
 
     def test_delete_role_with_active_users(self):
         """7. DELETE custom role with active users → 400."""
@@ -223,7 +223,7 @@ class AccessControlTests(TestCase):
     # ─── Permission assignment ───
 
     def test_set_permissions_custom_role(self):
-        """10. set-permissions on custom role → 200, unmentioned set to none."""
+        """10. set-permissions on custom role → 200, unmentioned set to no_access."""
         self._authenticate(self.admin_user)
         custom = Role.objects.create(
             name="Limited", slug="limited", organization=self.org, is_system=False
@@ -232,7 +232,7 @@ class AccessControlTests(TestCase):
             f"/api/access-control/roles/{custom.id}/set-permissions/",
             {"permissions": [
                 {"module": "patients", "access": "read"},
-                {"module": "appointments", "access": "both"},
+                {"module": "appointments", "access": "full_access"},
             ]},
             format="json",
         )
@@ -242,8 +242,8 @@ class AccessControlTests(TestCase):
             for p in ModulePermission.objects.filter(role=custom)
         }
         self.assertEqual(perms.get("patients"), "read")
-        self.assertEqual(perms.get("appointments"), "both")
-        self.assertEqual(perms.get("doctors"), "none")
+        self.assertEqual(perms.get("appointments"), "full_access")
+        self.assertNotIn("doctors", perms)
 
     def test_set_permissions_system_role(self):
         """11. set-permissions on system role → 200."""
@@ -285,7 +285,7 @@ class AccessControlTests(TestCase):
         )
         self.client.post(
             f"/api/access-control/roles/{custom.id}/set-permissions/",
-            {"permissions": [{"module": "patients", "access": "both"}]},
+            {"permissions": [{"module": "patients", "access": "full_access"}]},
             format="json",
         )
         count = ModulePermission.objects.filter(
@@ -293,7 +293,7 @@ class AccessControlTests(TestCase):
         ).count()
         self.assertEqual(count, 1)
         perm = ModulePermission.objects.get(role=custom, module="patients")
-        self.assertEqual(perm.access, "both")
+        self.assertEqual(perm.access, "full_access")
 
     # ─── Dynamic permission engine ───
 
@@ -341,7 +341,7 @@ class AccessControlTests(TestCase):
         admin_client.force_authenticate(user=self.admin_user)
         admin_client.post(
             f"/api/access-control/roles/{custom.id}/set-permissions/",
-            {"permissions": [{"module": "patients", "access": "both"}]},
+            {"permissions": [{"module": "patients", "access": "full_access"}]},
             format="json",
         )
 
@@ -351,13 +351,13 @@ class AccessControlTests(TestCase):
         self.assertEqual(post_resp2.status_code, 201)
 
     def test_custom_role_staff_none_denied(self):
-        """16. Custom role with staff=none → GET /api/staff/ → 403."""
+        """16. Custom role with staff=no_access → GET /api/staff/ → 403."""
         custom = Role.objects.create(
             name="NoStaff", slug="no-staff", organization=self.org,
             is_system=False,
         )
         ModulePermission.objects.create(
-            role=custom, module="staff", access="none"
+            role=custom, module="staff", access="no_access"
         )
         test_user = self._create_user_with_role(
             "nostaff@test.com", "testpass123", custom
@@ -407,7 +407,7 @@ class AccessControlTests(TestCase):
         self.assertEqual(response.data["role_detail"]["slug"], "admin")
         self.assertIn("permissions", response.data)
         self.assertEqual(
-            response.data["permissions"].get("patients"), "both"
+            response.data["permissions"].get("patients"), "full_access"
         )
 
     def test_login_response_custom_role_permissions(self):

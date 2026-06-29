@@ -51,7 +51,7 @@ export function NotAvailable() {
         </p>
 
         {!isRoleBlocked && featureKey ? (
-          <p className="mt-5 rounded-control bg-brand-light px-3 py-1.5 font-mono text-[12px] font-medium text-brand">
+          <p className="mt-5 rounded-control bg-brand-light px-3 py-1.5 font-sans text-[12px] font-medium text-brand">
             {featureKey}
           </p>
         ) : null}

@@ -50,10 +50,9 @@ MODULE_CHOICES = [
 ]
 
 ACCESS_CHOICES = [
-    ("none", "No Access"),
-    ("read", "Read Only"),
-    ("write", "Write Only"),
-    ("both", "Read & Write"),
+    ("no_access", "No Access"),
+    ("read", "Read"),
+    ("full_access", "Full Access"),
 ]
 
 
@@ -65,7 +64,7 @@ class ModulePermission(models.Model):
     )
     module = models.CharField(max_length=50, choices=MODULE_CHOICES)
     access = models.CharField(
-        max_length=10, choices=ACCESS_CHOICES, default="none"
+        max_length=15, choices=ACCESS_CHOICES, default="no_access"
     )
 
     class Meta:
@@ -73,11 +72,11 @@ class ModulePermission(models.Model):
 
     @property
     def can_read(self):
-        return self.access in ["read", "both"]
+        return self.access in ["read", "full_access"]
 
     @property
     def can_write(self):
-        return self.access in ["write", "both"]
+        return self.access == "full_access"
 
     def __str__(self):
         return f"{self.role.name} — {self.module}: {self.access}"

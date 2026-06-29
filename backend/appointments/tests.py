@@ -272,14 +272,14 @@ class AppointmentCRUDTests(BaseTestCase):
         self.assertEqual(response.data['diagnosis'], 'New diagnosis')
         self.assertEqual(response.data['payment_status'], 'paid')
 
-    def test_delete_appointment(self):
+    def test_delete_appointment_receptionist_403(self):
         future = timezone.now() + timedelta(days=1)
         appt = Appointment.objects.create(
             organization=self.org, patient=self.patient, doctor=self.doctor,
             booked_by=self.receptionist, appointment_dt=future, reason='Checkup',
         )
         response = self.client.delete(f'/api/appointments/{appt.id}/')
-        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.status_code, 403)
 
     def test_past_appointment_create_returns_400(self):
         past = timezone.now() - timedelta(days=1)

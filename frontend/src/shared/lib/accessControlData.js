@@ -1,5 +1,7 @@
+import { ACCESS_LEVEL_VALUES, normalizeAccessLevel } from './permissions'
+
 const MODULES = ['patients', 'appointments', 'doctors', 'staff', 'reports']
-const ACCESS_LEVELS = ['none', 'read', 'write', 'both']
+const DEFAULT_ACCESS_LEVEL = 'no_access'
 
 const DEMO_ROLE_RECORDS = [
   {
@@ -8,11 +10,11 @@ const DEMO_ROLE_RECORDS = [
     id: 1,
     is_system: true,
     module_permissions: {
-      appointments: 'both',
-      doctors: 'both',
-      patients: 'both',
-      reports: 'read',
-      staff: 'both',
+      appointments: 'full_access',
+      doctors: 'full_access',
+      patients: 'full_access',
+      reports: 'full_access',
+      staff: 'full_access',
     },
     name: 'Admin',
     slug: 'admin',
@@ -27,8 +29,8 @@ const DEMO_ROLE_RECORDS = [
       appointments: 'read',
       doctors: 'read',
       patients: 'read',
-      reports: 'none',
-      staff: 'none',
+      reports: 'no_access',
+      staff: 'no_access',
     },
     name: 'Doctor',
     slug: 'doctor',
@@ -40,11 +42,11 @@ const DEMO_ROLE_RECORDS = [
     id: 3,
     is_system: true,
     module_permissions: {
-      appointments: 'both',
-      doctors: 'both',
-      patients: 'both',
+      appointments: 'full_access',
+      doctors: 'full_access',
+      patients: 'full_access',
       reports: 'read',
-      staff: 'none',
+      staff: 'no_access',
     },
     name: 'Receptionist',
     slug: 'receptionist',
@@ -56,11 +58,11 @@ const DEMO_ROLE_RECORDS = [
     id: 11,
     is_system: false,
     module_permissions: {
-      appointments: 'both',
+      appointments: 'full_access',
       doctors: 'read',
-      patients: 'both',
+      patients: 'full_access',
       reports: 'read',
-      staff: 'none',
+      staff: 'no_access',
     },
     name: 'Head Nurse',
     slug: 'head-nurse',
@@ -73,10 +75,10 @@ const DEMO_ROLE_RECORDS = [
     is_system: false,
     module_permissions: {
       appointments: 'read',
-      doctors: 'none',
+      doctors: 'no_access',
       patients: 'read',
       reports: 'read',
-      staff: 'none',
+      staff: 'no_access',
     },
     name: 'Lab Technician',
     slug: 'lab-technician',
@@ -100,8 +102,8 @@ function getPermissionMap(role = {}) {
 
 function normalizePermissions(permissions = {}) {
   return MODULES.reduce((nextPermissions, module) => {
-    const access = permissions[module] || 'none'
-    nextPermissions[module] = ACCESS_LEVELS.includes(access) ? access : 'none'
+    const access = permissions[module] || DEFAULT_ACCESS_LEVEL
+    nextPermissions[module] = normalizeAccessLevel(access)
     return nextPermissions
   }, {})
 }
@@ -316,4 +318,4 @@ export function ensureDemoRoleName(name) {
   }
 }
 
-export { ACCESS_LEVELS, MODULES }
+export { ACCESS_LEVEL_VALUES as ACCESS_LEVELS, MODULES }

@@ -11,11 +11,12 @@ import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom
 
 import Avatar from '@shared/components/Avatar'
 import ConfirmationModal from '@shared/components/ConfirmationModal'
+import Pagination from '@shared/components/Pagination'
 import PaymentBadge from '@features/appointments/components/PaymentBadge'
 import SkeletonRow from '@shared/components/SkeletonRow'
 import StatusBadge from '@features/appointments/components/StatusBadge'
 import { useToast } from '@shared/components/Toast'
-import { useAuth } from '@shared/context/AuthContext'
+import { usePermission } from '@shared/lib/usePermission'
 import {
   formatDate,
   formatDateParts,
@@ -33,9 +34,9 @@ import {
   normalizeStringArray,
 } from '@shared/lib/records'
 import {
-  canDeletePatient,
-  canEditPatient,
-} from '@shared/lib/permissions'
+  normalizePaginatedResponse,
+  pageParams,
+} from '@shared/lib/pagination'
 import {
   deletePatient,
   getAppointments,
@@ -120,7 +121,7 @@ function VisitCard({ appointment, doctors, expanded, onToggle }) {
         type="button"
       >
         <div className="min-w-0">
-          <p className="font-mono text-[13px] font-bold text-ink">
+          <p className="font-sans text-[13px] font-bold text-ink">
             {dateParts.date}
             {dateParts.time ? (
               <span className="font-medium text-slate"> · {dateParts.time}</span>
@@ -149,7 +150,7 @@ function VisitCard({ appointment, doctors, expanded, onToggle }) {
               <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate">
                 Vitals
               </h3>
-              <span className="rounded bg-mist px-2 py-0.5 font-mono text-[12px] text-ink">
+              <span className="rounded bg-mist px-2 py-0.5 font-sans text-[12px] text-ink">
                 {vitalsText}
               </span>
             </section>
@@ -247,15 +248,19 @@ function VisitCard({ appointment, doctors, expanded, onToggle }) {
 
 export function PatientView() {
   const { id } = useParams()
-  const { user } = useAuth()
+  const { canDelete, canWrite } = usePermission()
   const toast = useToast()
   const navigate = useNavigate()
   const outletContext = useOutletContext()
-  const canUpdatePatient = canEditPatient(user)
-  const canRemovePatient = canDeletePatient(user)
+  const canUpdatePatient = canWrite('patients')
+  const canRemovePatient = canDelete()
   const [patient, setPatient] = useState(null)
   const [completedVisits, setCompletedVisits] = useState([])
+  const [completedPage, setCompletedPage] = useState(1)
+  const [completedTotal, setCompletedTotal] = useState(0)
   const [upcomingAppointments, setUpcomingAppointments] = useState([])
+  const [upcomingPage, setUpcomingPage] = useState(1)
+  const [upcomingTotal, setUpcomingTotal] = useState(0)
   const [doctors, setDoctors] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -274,11 +279,13 @@ export function PatientView() {
         await Promise.all([
           getPatient(id),
           getAppointments({
+            ...pageParams(completedPage),
             patient: id,
             status: 'completed',
             ordering: '-appointment_dt',
           }),
           getAppointments({
+            ...pageParams(upcomingPage),
             patient: id,
             status: 'scheduled',
             ordering: 'appointment_dt',
@@ -286,11 +293,15 @@ export function PatientView() {
           getDoctors(),
         ])
 
-      const visits = normalizeList(completedResponse)
+      const completed = normalizePaginatedResponse(completedResponse)
+      const scheduled = normalizePaginatedResponse(scheduledResponse)
+      const visits = completed.results
 
       setPatient(patientResponse)
       setCompletedVisits(visits)
-      setUpcomingAppointments(normalizeList(scheduledResponse))
+      setCompletedTotal(completed.count)
+      setUpcomingAppointments(scheduled.results)
+      setUpcomingTotal(scheduled.count)
       setDoctors(normalizeList(doctorsResponse))
       setExpandedVisits(new Set(visits[0] ? [getRecordId(visits[0])] : []))
     } catch (error) {
@@ -302,7 +313,7 @@ export function PatientView() {
     } finally {
       setIsLoading(false)
     }
-  }, [id])
+  }, [completedPage, id, upcomingPage])
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -451,7 +462,7 @@ export function PatientView() {
                   {getPatientName(patient)}
                 </h1>
                 {Number.isFinite(age) ? (
-                  <span className="rounded-full bg-brand-light px-3 py-0.5 font-mono text-[12px] font-medium text-brand">
+                  <span className="rounded-full bg-brand-light px-3 py-0.5 font-sans text-[12px] font-medium text-brand">
                     {age} yrs
                   </span>
                 ) : null}
@@ -469,7 +480,7 @@ export function PatientView() {
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate">
                 Phone
               </p>
-              <p className="mt-1 font-mono text-[14px] font-medium text-ink">
+              <p className="mt-1 font-sans text-[14px] font-medium text-ink">
                 {patient.phone || '-'}
               </p>
             </div>
@@ -485,7 +496,7 @@ export function PatientView() {
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate">
                 Weight / Height
               </p>
-              <p className="mt-1 font-mono text-[13px] font-medium text-ink">
+              <p className="mt-1 font-sans text-[13px] font-medium text-ink">
                 {patient.weight_kg || '-'} kg · {patient.height_cm || '-'} cm
               </p>
             </div>
@@ -501,7 +512,7 @@ export function PatientView() {
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate">
                 Onboarded
               </p>
-              <p className="mt-1 font-mono text-[12px] font-medium text-slate">
+              <p className="mt-1 font-sans text-[12px] font-medium text-slate">
                 {formatDate(patient.onboarding_date)}
               </p>
             </div>
@@ -509,7 +520,7 @@ export function PatientView() {
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate">
                 Last Visit
               </p>
-              <p className="mt-1 font-mono text-[12px] font-medium text-slate">
+              <p className="mt-1 font-sans text-[12px] font-medium text-slate">
                 {formatDate(headerLastVisitDate)}
               </p>
             </div>
@@ -517,7 +528,7 @@ export function PatientView() {
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate">
                 Next Appointment
               </p>
-              <p className="mt-1 font-mono text-[12px] font-medium text-slate">
+              <p className="mt-1 font-sans text-[12px] font-medium text-slate">
                 {formatDate(headerNextAppointmentDate)}
               </p>
             </div>
@@ -567,29 +578,36 @@ export function PatientView() {
         <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-[18px] font-bold text-ink">Consultation History</h2>
           <div className="flex flex-wrap gap-2">
-            <span className="rounded-full bg-mist px-3 py-1 font-mono text-[12px] text-slate">
+            <span className="rounded-full bg-mist px-3 py-1 font-sans text-[12px] text-slate">
               First Visit: {formatDate(firstVisitDate)}
             </span>
-            <span className="rounded-full bg-mist px-3 py-1 font-mono text-[12px] text-slate">
+            <span className="rounded-full bg-mist px-3 py-1 font-sans text-[12px] text-slate">
               Last Visit: {formatDate(lastVisitDate)}
             </span>
           </div>
         </div>
 
         {completedVisits.length > 0 ? (
-          completedVisits.map((appointment) => {
-            const visitId = getRecordId(appointment)
+          <>
+            {completedVisits.map((appointment) => {
+              const visitId = getRecordId(appointment)
 
-            return (
-              <VisitCard
-                appointment={appointment}
-                doctors={doctors}
-                expanded={expandedVisits.has(visitId)}
-                key={visitId}
-                onToggle={() => toggleVisit(visitId)}
-              />
-            )
-          })
+              return (
+                <VisitCard
+                  appointment={appointment}
+                  doctors={doctors}
+                  expanded={expandedVisits.has(visitId)}
+                  key={visitId}
+                  onToggle={() => toggleVisit(visitId)}
+                />
+              )
+            })}
+            <Pagination
+              currentPage={completedPage}
+              onPageChange={setCompletedPage}
+              totalCount={completedTotal}
+            />
+          </>
         ) : (
           <section className="rounded-card bg-canvas p-8 text-center shadow-card">
             <p className="text-[14px] font-medium text-slate">
@@ -623,7 +641,7 @@ export function PatientView() {
               <tbody>
                 {upcomingAppointments.map((appointment) => (
                   <tr className="border-b border-hairline last:border-0" key={getRecordId(appointment)}>
-                    <td className="px-4 py-3 font-mono text-[12px] font-medium text-ink">
+                    <td className="px-4 py-3 font-sans text-[12px] font-medium text-ink">
                       {formatDateTime(appointment.appointment_dt)}
                     </td>
                     <td className="px-4 py-3 text-[13px] font-normal text-ink">
@@ -642,6 +660,11 @@ export function PatientView() {
                 ))}
               </tbody>
             </table>
+            <Pagination
+              currentPage={upcomingPage}
+              onPageChange={setUpcomingPage}
+              totalCount={upcomingTotal}
+            />
           </div>
         ) : (
           <p className="text-[14px] font-medium text-slate">

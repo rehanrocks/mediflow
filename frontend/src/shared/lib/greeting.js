@@ -1,5 +1,3 @@
-import { ROLES } from './roles'
-
 export function getGreeting() {
   const hour = new Date().getHours()
 
@@ -14,14 +12,14 @@ export function getGreeting() {
   return 'evening'
 }
 
-export function buildGreeting(user) {
+export function buildGreeting(user, role) {
   const time = getGreeting()
 
   if (!user) {
     return `Good ${time}`
   }
 
-  if (user.role === ROLES.DOCTOR) {
+  if (role?.slug === 'doctor') {
     const doctorName =
       user.last_name || user.full_name || user.first_name || 'Doctor'
 

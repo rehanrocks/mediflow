@@ -1,0 +1,14 @@
+Hello {{ first_name }},
+
+Your MediFlow account has been created. Here are your login credentials:
+
+Portal: {{ portal_url }}
+Username: {{ email }}
+Password: {{ temp_password }}
+
+Please log in and change your password immediately.
+Your temporary password must be changed on first login.
+
+If you did not expect this email, please contact your administrator.
+
+— The MediFlow Team

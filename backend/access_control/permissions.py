@@ -38,29 +38,15 @@ class HasModuleAccess(BasePermission):
 
         role = user.role_obj
         if not role:
-            return self._legacy_check(user)
+            return False
 
         perms = get_role_permissions(role.id)
-        access = perms.get(self.module, "none")
+        access = perms.get(self.module, "no_access")
 
         if self.required_access == "read":
-            return access in ["read", "both"]
+            return access in ["read", "full_access"]
         if self.required_access == "write":
-            return access in ["write", "both"]
-        if self.required_access == "both":
-            return access == "both"
-        return False
-
-    def _legacy_check(self, user):
-        role_slug = user.role_slug
-        if role_slug == "admin":
-            return True
-        if role_slug == "receptionist":
-            if self.module == "staff":
-                return False
-            return True
-        if role_slug == "doctor":
-            if self.required_access == "read":
-                return self.module in ["patients", "appointments", "doctors"]
-            return False
+            return access == "full_access"
+        if self.required_access == "full_access":
+            return access == "full_access"
         return False

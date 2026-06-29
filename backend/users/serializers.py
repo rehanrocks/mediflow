@@ -14,9 +14,9 @@ def _resolve_role_permissions(role_obj):
         perms = ModulePermission.objects.filter(role=role_obj).values("module", "access")
         result = {p["module"]: p["access"] for p in perms}
         if not result:
-            result = {m: "none" for m, _ in MODULE_CHOICES}
+            result = {m: "no_access" for m, _ in MODULE_CHOICES}
         return result
-    return {m: "none" for m, _ in MODULE_CHOICES}
+    return {m: "no_access" for m, _ in MODULE_CHOICES}
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -37,6 +37,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token['role_slug'] = role_obj.slug if role_obj else user.role_slug
         permissions = _resolve_role_permissions(role_obj)
         token['permissions'] = permissions
+        token['force_password_change'] = user.force_password_change
 
         return token
 
@@ -67,6 +68,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             "is_system": role_obj.is_system if role_obj else True,
         }
         data['permissions'] = _resolve_role_permissions(role_obj)
+        data['force_password_change'] = user.force_password_change
 
         if user.organization:
             org = user.organization
@@ -108,6 +110,7 @@ class CustomTokenRefreshSerializer(TokenRefreshSerializer):
                 access_token['last_name'] = user.last_name
                 access_token['role_slug'] = role_obj.slug if role_obj else user.role_slug
                 access_token['permissions'] = permissions
+                access_token['force_password_change'] = user.force_password_change
 
                 data['access'] = str(access_token)
                 data['role'] = user.role_slug
@@ -118,6 +121,7 @@ class CustomTokenRefreshSerializer(TokenRefreshSerializer):
                     "is_system": role_obj.is_system if role_obj else True,
                 }
                 data['permissions'] = permissions
+                data['force_password_change'] = user.force_password_change
 
         return data
 
@@ -154,6 +158,7 @@ class DoctorListSerializer(serializers.ModelSerializer):
             'today_checkin', 'today_checkout',
             'cases_today', 'cases_this_week', 'cases_this_month',
             'total_cases', 'avg_cases_per_day', 'daily_cases',
+            'has_account',
         ]
 
     def get_qualification(self, obj):
@@ -264,6 +269,7 @@ class DoctorDetailSerializer(DoctorListSerializer):
 
 
 class DoctorWriteSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(required=True)
     qualification = serializers.CharField(
         write_only=True, required=False, allow_blank=True
     )
@@ -275,6 +281,21 @@ class DoctorWriteSerializer(serializers.ModelSerializer):
             'qualification', 'specializations', 'experience_years',
             'status', 'join_date', 'shift_start', 'shift_end',
         ]
+
+    def validate_email(self, value):
+        if not value:
+            raise serializers.ValidationError("Email is required.")
+        value = value.lower().strip()
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        qs = User.objects.filter(email__iexact=value)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(
+                "This email is already registered to another user."
+            )
+        return value
 
     def validate_shift_end(self, value):
         if value:

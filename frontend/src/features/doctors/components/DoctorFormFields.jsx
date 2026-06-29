@@ -1,6 +1,8 @@
 /* src/features/doctors/components/DoctorFormFields.jsx - Reusable doctor form fields. */
 import { X } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+
+import { createQualification, getQualifications } from '@shared/services/api'
 
 function FieldError({ children, tone = 'error' }) {
   if (!children) return null
@@ -36,6 +38,7 @@ function Field({ children, error, label }) {
 
 const INPUT_CLASS =
   'w-full rounded-control border border-hairline bg-mist px-3 py-2.5 text-[13px] text-ink outline-none transition-colors placeholder:text-slate/50 focus:border-brand'
+const EMAIL_HELPER_TEXT = 'Login credentials will be sent to this email address.'
 
 const SPECIALIZATION_OPTIONS = [
   'Cardiology',
@@ -57,13 +60,38 @@ const SPECIALIZATION_OPTIONS = [
 
 export function DoctorFormFields({
   data,
+  emailReadOnly = false,
   errors,
   onBlur,
   onChange,
   touched,
 }) {
   const [specInput, setSpecInput] = useState('')
+  const [qualInput, setQualInput] = useState('')
+  const [qualLoading, setQualLoading] = useState(false)
+  const [qualError, setQualError] = useState('')
+  const [allQuals, setAllQuals] = useState([])
   const specInputRef = useRef(null)
+
+  useEffect(() => {
+    let mounted = true
+
+    getQualifications()
+      .then((response) => {
+        if (mounted) {
+          setAllQuals(Array.isArray(response) ? response : response?.results || [])
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setAllQuals([])
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   function addSpecialization(value) {
     const nextValue = String(value || '').trim()
@@ -72,7 +100,12 @@ export function DoctorFormFields({
       return
     }
 
-    if (!data.specializations.includes(nextValue)) {
+    if (
+      !data.specializations.some(
+        (specialization) =>
+          specialization.toLowerCase() === nextValue.toLowerCase(),
+      )
+    ) {
       onChange({
         target: {
           name: 'specializations',
@@ -118,30 +151,122 @@ export function DoctorFormFields({
     event.target.value = ''
   }
 
+  function emitQualifications(nextQualifications) {
+    onChange({
+      target: {
+        name: 'qualifications',
+        value: nextQualifications,
+      },
+    })
+  }
+
+  async function addQualification(value) {
+    const trimmed = String(value || '').trim()
+
+    if (!trimmed) {
+      return
+    }
+
+    setQualError('')
+
+    const existing = allQuals.find(
+      (qualification) =>
+        qualification.name.toLowerCase() === trimmed.toLowerCase(),
+    )
+
+    if (existing) {
+      if (
+        !data.qualifications.some(
+          (qualification) =>
+            qualification.id === existing.id ||
+            qualification.name.toLowerCase() === existing.name.toLowerCase(),
+        )
+      ) {
+        emitQualifications([...data.qualifications, existing])
+      }
+      setQualInput('')
+      return
+    }
+
+    setQualLoading(true)
+
+    try {
+      const created = await createQualification(trimmed)
+      setAllQuals((currentQuals) => [...currentQuals, created])
+      emitQualifications([...data.qualifications, created])
+      setQualInput('')
+    } catch {
+      setQualError('Could not save qualification. Please try again.')
+    } finally {
+      setQualLoading(false)
+    }
+  }
+
+  function handleQualKeyDown(event) {
+    if (event.key === 'Enter' || event.key === ',') {
+      event.preventDefault()
+      addQualification(qualInput)
+    }
+  }
+
+  function removeQualification(id) {
+    emitQualifications(
+      data.qualifications.filter((qualification) => qualification.id !== id),
+    )
+  }
+
   return (
     <div className="space-y-5">
-      <Field error={touched.full_name && errors.full_name} label="Full Name *">
-        <input
-          className={INPUT_CLASS}
-          name="full_name"
-          onBlur={onBlur}
-          onChange={onChange}
-          placeholder="Enter full name"
-          type="text"
-          value={data.full_name}
-        />
-      </Field>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field error={touched.first_name && errors.first_name} label="First Name *">
+          <input
+            className={INPUT_CLASS}
+            name="first_name"
+            onBlur={onBlur}
+            onChange={onChange}
+            placeholder="First name"
+            type="text"
+            value={data.first_name}
+          />
+        </Field>
+
+        <Field error={touched.last_name && errors.last_name} label="Last Name *">
+          <input
+            className={INPUT_CLASS}
+            name="last_name"
+            onBlur={onBlur}
+            onChange={onChange}
+            placeholder="Last name"
+            type="text"
+            value={data.last_name}
+          />
+        </Field>
+      </div>
 
       <Field error={touched.email && errors.email} label="Email *">
         <input
-          className={INPUT_CLASS}
+          className={[
+            INPUT_CLASS,
+            emailReadOnly ? 'cursor-not-allowed bg-mist text-slate' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
           name="email"
           onBlur={onBlur}
           onChange={onChange}
           placeholder="name@clinic.com"
+          readOnly={emailReadOnly}
           type="email"
           value={data.email}
         />
+        <p className="mt-1 text-[11px] font-normal text-slate/60">
+          {EMAIL_HELPER_TEXT}
+        </p>
+        {emailReadOnly ? (
+          <FieldError tone="warning">
+            Email cannot be changed after account creation.
+          </FieldError>
+        ) : null}
       </Field>
 
       <Field error={touched.phone && errors.phone} label="Phone *">
@@ -156,20 +281,58 @@ export function DoctorFormFields({
         />
       </Field>
 
-      <Field
-        error={touched.qualification && errors.qualification}
-        label="Qualification *"
-      >
-        <input
-          className={INPUT_CLASS}
-          name="qualification"
-          onBlur={onBlur}
-          onChange={onChange}
-          placeholder="e.g. MBBS, FCPS"
-          type="text"
-          value={data.qualification}
-        />
-      </Field>
+      <div>
+        <span
+          className={[
+            'mb-2 block text-[13px] font-medium',
+            touched.qualifications && errors.qualifications
+              ? 'text-rose-600'
+              : 'text-ink',
+          ].join(' ')}
+        >
+          Qualifications *
+        </span>
+        <div className="rounded-control border border-hairline bg-mist px-3 py-2.5">
+          {data.qualifications.length > 0 ? (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {data.qualifications.map((qualification) => (
+                <span
+                  className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-medium text-violet-700"
+                  key={qualification.id}
+                >
+                  {qualification.name}
+                  <button
+                    className="rounded-full transition hover:bg-violet-100"
+                    onClick={() => removeQualification(qualification.id)}
+                    type="button"
+                  >
+                    <span className="sr-only">Remove {qualification.name}</span>
+                    <X aria-hidden="true" className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
+          <div className="relative">
+            <input
+              className="w-full bg-transparent pr-7 text-[13px] text-ink outline-none placeholder:text-slate/50"
+              disabled={qualLoading}
+              onBlur={() => onBlur({ target: { name: 'qualifications' } })}
+              onChange={(event) => setQualInput(event.target.value)}
+              onKeyDown={handleQualKeyDown}
+              placeholder="Add qualification..."
+              type="text"
+              value={qualInput}
+            />
+            {qualLoading ? (
+              <span className="absolute right-1 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-brand/20 border-t-brand animate-spin" />
+            ) : null}
+          </div>
+        </div>
+        <FieldError>
+          {(touched.qualifications && errors.qualifications) || qualError}
+        </FieldError>
+      </div>
 
       <div>
         <span

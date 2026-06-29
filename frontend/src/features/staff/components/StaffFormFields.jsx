@@ -1,119 +1,36 @@
 /* src/features/staff/components/StaffFormFields.jsx - Shared staff form controls. */
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
+
 import {
+  FieldError,
   FormField,
   FormSection,
   getFieldClass,
 } from '@shared/components/FormPrimitives'
-import { getRoleNames } from '@shared/services/api'
+import { getStaffJoiningDateWarning } from '@shared/lib/staffUtils'
 
-const OTHER_VALUE = '__other__'
+const OTHER_ROLE_VALUE = '__other__'
+const EMAIL_HELPER_TEXT = 'Login credentials will be sent to this email address.'
 
-function RoleSelect({ error, hasError, onChange, value }) {
-  const [roles, setRoles] = useState([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [fetchFailed, setFetchFailed] = useState(false)
-  const [isOther, setIsOther] = useState(false)
+const DEFAULT_SYSTEM_ROLES = [
+  { name: 'Admin', slug: 'admin', is_system: true },
+  { name: 'Doctor', slug: 'doctor', is_system: true },
+]
 
-  useEffect(() => {
-    let mounted = true
-
-    async function loadRoles() {
-      try {
-        const data = await getRoleNames()
-        if (mounted) {
-          setRoles(Array.isArray(data) ? data : [])
-        }
-      } catch {
-        if (mounted) setFetchFailed(true)
-      } finally {
-        if (mounted) setIsLoading(false)
-      }
-    }
-
-    loadRoles()
-    return () => { mounted = false }
-  }, [])
-
-  useEffect(() => {
-    if (roles.length > 0 && value) {
-      const matched = roles.find(
-        (r) => r.name.toLowerCase() === String(value).toLowerCase()
-      )
-      setIsOther(!matched)
-    }
-  }, [roles, value])
-
-  if (fetchFailed) {
-    return (
-      <input
-        className={getFieldClass(hasError ? error : '')}
-        name="role"
-        onChange={onChange}
-        placeholder="e.g. Nurse, Ward Boy, Sweeper, Security Guard..."
-        type="text"
-        value={value}
-      />
-    )
+function mergeRoleOptions(apiRoles) {
+  if (!Array.isArray(apiRoles) || apiRoles.length === 0) {
+    return DEFAULT_SYSTEM_ROLES
   }
 
-  function handleSelectChange(e) {
-    const selected = e.target.value
-    if (selected === OTHER_VALUE) {
-      setIsOther(true)
-      onChange({ target: { name: 'role', value: '' } })
-    } else {
-      setIsOther(false)
-      onChange({ target: { name: 'role', value: selected } })
+  const merged = [...DEFAULT_SYSTEM_ROLES]
+
+  for (const role of apiRoles) {
+    if (!DEFAULT_SYSTEM_ROLES.some((defaultRole) => defaultRole.name === role.name)) {
+      merged.push(role)
     }
   }
 
-  function handleCustomInput(e) {
-    onChange({ target: { name: 'role', value: e.target.value } })
-  }
-
-  return (
-    <>
-      <select
-        className={getFieldClass(hasError ? error : '', 'mb-2')}
-        disabled={isLoading}
-        name="role-select"
-        onChange={handleSelectChange}
-        value={
-          isOther
-            ? OTHER_VALUE
-            : roles.find(
-                (r) => r.name.toLowerCase() === String(value).toLowerCase()
-              )?.name ?? (value ? OTHER_VALUE : '')
-        }
-      >
-        {isLoading ? (
-          <option value="">Loading roles...</option>
-        ) : (
-          <>
-            <option value="">Select a role...</option>
-            {roles.map((r) => (
-              <option key={r.id} value={r.name}>
-                {r.name}
-              </option>
-            ))}
-            <option value={OTHER_VALUE}>Other (type your own)...</option>
-          </>
-        )}
-      </select>
-
-      {isOther && (
-        <input
-          className={getFieldClass(hasError ? error : '')}
-          name="role"
-          onChange={handleCustomInput}
-          placeholder="Type custom role title..."
-          type="text"
-          value={value}
-        />
-      )}
-    </>
-  )
+  return merged
 }
 
 export function StaffFormFields({
@@ -121,26 +38,132 @@ export function StaffFormFields({
   errors = {},
   onBlur,
   onChange,
+  roleOptions,
+  roleOptionsFailed = false,
   showStatus = true,
   touched = {},
 }) {
+  const [showCustomRole, setShowCustomRole] = useState(false)
+  const resolvedRoleOptions = useMemo(() => {
+    if (roleOptions === null) return null
+    if (roleOptionsFailed || roleOptions === undefined) return DEFAULT_SYSTEM_ROLES
+    return mergeRoleOptions(roleOptions)
+  }, [roleOptions, roleOptionsFailed])
+
+  const roleValue = String(data.role || '')
+  const emailReadOnly = data.has_account === true
+  const joinDateWarning = !errors.joining_date
+    ? getStaffJoiningDateWarning(data.joining_date)
+    : ''
+  const matchedRoleName = useMemo(() => {
+    if (!Array.isArray(resolvedRoleOptions)) {
+      return ''
+    }
+
+    return resolvedRoleOptions.find((role) => role.name === roleValue)?.name || ''
+  }, [resolvedRoleOptions, roleValue])
+  const usingCustomRole =
+    showCustomRole ||
+    (Array.isArray(resolvedRoleOptions) && Boolean(roleValue) && !matchedRoleName)
+
+  function emitRoleChange(value) {
+    onChange({
+      target: {
+        name: 'role',
+        value,
+      },
+    })
+  }
+
+  function handleRoleSelect(event) {
+    const nextValue = event.target.value
+
+    if (nextValue === OTHER_ROLE_VALUE) {
+      setShowCustomRole(true)
+
+      if (matchedRoleName) {
+        emitRoleChange('')
+      }
+
+      return
+    }
+
+    setShowCustomRole(false)
+    emitRoleChange(nextValue)
+  }
+
+  function renderRoleControl() {
+    if (resolvedRoleOptions === null) {
+      return (
+        <select
+          className={getFieldClass('', 'text-slate')}
+          disabled
+          name="role"
+          value=""
+        >
+          <option value="">Loading roles...</option>
+        </select>
+      )
+    }
+
+    return (
+      <div className="space-y-2">
+        <select
+          className={getFieldClass(touched.role ? errors.role : '')}
+          name="role"
+          onBlur={onBlur}
+          onChange={handleRoleSelect}
+          value={usingCustomRole ? OTHER_ROLE_VALUE : matchedRoleName}
+        >
+          <option value="">Select a role...</option>
+          {resolvedRoleOptions.map((role) => (
+            <option key={role.id || role.slug || role.name} value={role.name}>
+              {role.name}
+            </option>
+          ))}
+          <option value={OTHER_ROLE_VALUE}>Other...</option>
+        </select>
+
+        {usingCustomRole ? (
+          <input
+            className={getFieldClass(touched.role ? errors.role : '')}
+            name="role"
+            onBlur={onBlur}
+            onChange={onChange}
+            placeholder="Type custom role title..."
+            type="text"
+            value={data.role}
+          />
+        ) : null}
+
+        {roleOptionsFailed ? (
+          <p className="mt-1.5 text-[12px] text-slate">
+            Could not load additional role suggestions.
+          </p>
+        ) : null}
+      </div>
+    )
+  }
+
   return (
     <>
       <FormSection title="Personal Details">
-        <FormField
-          error={touched.full_name ? errors.full_name : ''}
-          label="Full Name"
-        >
-          <input
-            className={getFieldClass(touched.full_name ? errors.full_name : '')}
-            name="full_name"
-            onBlur={onBlur}
-            onChange={onChange}
-            placeholder="Aisha Khan"
-            type="text"
-            value={data.full_name}
-          />
-        </FormField>
+        {roleValue.toLowerCase() !== 'doctor' ? (
+          <FormField
+            error={touched.full_name ? errors.full_name : ''}
+            label="Full Name"
+          >
+            <input
+              className={getFieldClass(touched.full_name ? errors.full_name : '')}
+              name="full_name"
+              onBlur={onBlur}
+              onChange={onChange}
+              placeholder="Aisha Khan"
+              type="text"
+              value={data.full_name}
+            />
+          </FormField>
+        ) : null}
 
         <FormField
           error={touched.age ? errors.age : ''}
@@ -173,6 +196,30 @@ export function StaffFormFields({
           />
         </FormField>
 
+        <FormField error={touched.email ? errors.email : ''} label="Email">
+          <input
+            className={getFieldClass(
+              touched.email ? errors.email : '',
+              emailReadOnly ? 'cursor-not-allowed bg-mist text-slate' : '',
+            )}
+            name="email"
+            onBlur={onBlur}
+            onChange={onChange}
+            placeholder="name@clinic.com"
+            readOnly={emailReadOnly}
+            type="email"
+            value={data.email}
+          />
+          <p className="mt-1.5 text-[11px] font-normal text-slate/60">
+            {EMAIL_HELPER_TEXT}
+          </p>
+          {emailReadOnly ? (
+            <FieldError tone="warning">
+              Email cannot be changed after account creation.
+            </FieldError>
+          ) : null}
+        </FormField>
+
         <div className="md:col-span-2">
           <FormField
             error={touched.address ? errors.address : ''}
@@ -198,15 +245,10 @@ export function StaffFormFields({
       <FormSection title="Employment Details">
         <FormField
           error={touched.role ? errors.role : ''}
-          hint="Select an existing role or type a custom one."
+          hint="You can select an existing role or type a custom one."
           label="Role"
         >
-          <RoleSelect
-            error={touched.role ? errors.role : ''}
-            hasError={!!(touched.role && errors.role)}
-            onChange={onChange}
-            value={data.role}
-          />
+          {renderRoleControl()}
         </FormField>
 
         <FormField
@@ -221,6 +263,7 @@ export function StaffFormFields({
             type="date"
             value={data.joining_date}
           />
+          <FieldError tone="warning">{joinDateWarning}</FieldError>
         </FormField>
 
         {showStatus ? (
@@ -237,6 +280,149 @@ export function StaffFormFields({
             </select>
           </FormField>
         ) : null}
+      </FormSection>
+
+      {roleValue.toLowerCase() === 'doctor' ? (
+        <FormSection title="Doctor Profile">
+          <FormField
+            error={touched.first_name ? errors.first_name : ''}
+            label="First Name"
+          >
+            <input
+              className={getFieldClass(touched.first_name ? errors.first_name : '')}
+              name="first_name"
+              onBlur={onBlur}
+              onChange={onChange}
+              placeholder="John"
+              type="text"
+              value={data.first_name || ''}
+            />
+          </FormField>
+
+          <FormField
+            error={touched.last_name ? errors.last_name : ''}
+            label="Last Name"
+          >
+            <input
+              className={getFieldClass(touched.last_name ? errors.last_name : '')}
+              name="last_name"
+              onBlur={onBlur}
+              onChange={onChange}
+              placeholder="Doe"
+              type="text"
+              value={data.last_name || ''}
+            />
+          </FormField>
+
+          <FormField
+            error={touched.qualification ? errors.qualification : ''}
+            label="Qualification"
+          >
+            <input
+              className={getFieldClass(touched.qualification ? errors.qualification : '')}
+              name="qualification"
+              onBlur={onBlur}
+              onChange={onChange}
+              placeholder="e.g. MBBS, FCPS"
+              type="text"
+              value={data.qualification || ''}
+            />
+          </FormField>
+
+          <FormField
+            error={touched.specializations ? errors.specializations : ''}
+            hint="Comma-separated specializations"
+            label="Specializations"
+          >
+            <input
+              className={getFieldClass(touched.specializations ? errors.specializations : '')}
+              name="specializations"
+              onBlur={onBlur}
+              onChange={(event) => {
+                const raw = event.target.value
+                onChange({
+                  target: {
+                    name: 'specializations',
+                    value: raw
+                      .split(',')
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  },
+                })
+              }}
+              placeholder="Cardiology, Neurology, Pediatrics"
+              type="text"
+              value={(data.specializations || []).join(', ')}
+            />
+          </FormField>
+
+          <FormField
+            error={touched.experience_years ? errors.experience_years : ''}
+            label="Experience (Years)"
+          >
+            <input
+              className={getFieldClass(touched.experience_years ? errors.experience_years : '')}
+              max="60"
+              min="0"
+              name="experience_years"
+              onBlur={onBlur}
+              onChange={onChange}
+              placeholder="5"
+              type="number"
+              value={data.experience_years ?? ''}
+            />
+          </FormField>
+
+          <FormField
+            error={touched.doctor_status ? errors.doctor_status : ''}
+            label="Doctor Status"
+          >
+            <select
+              className={getFieldClass(touched.doctor_status ? errors.doctor_status : '')}
+              name="doctor_status"
+              onBlur={onBlur}
+              onChange={onChange}
+              value={data.doctor_status || 'active'}
+            >
+              <option value="active">Active</option>
+              <option value="on_leave">On Leave</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </FormField>
+        </FormSection>
+      ) : null}
+
+      <FormSection title="Working Hours">
+        <FormField
+          error={touched.shift_start ? errors.shift_start : ''}
+          label="Shift Start"
+        >
+          <input
+            className={getFieldClass(touched.shift_start ? errors.shift_start : '')}
+            name="shift_start"
+            onBlur={onBlur}
+            onChange={onChange}
+            type="time"
+            value={data.shift_start}
+          />
+        </FormField>
+
+        <FormField
+          error={touched.shift_end ? errors.shift_end : ''}
+          label="Shift End"
+        >
+          <input
+            className={getFieldClass(touched.shift_end ? errors.shift_end : '')}
+            name="shift_end"
+            onBlur={onBlur}
+            onChange={onChange}
+            type="time"
+            value={data.shift_end}
+          />
+        </FormField>
+      </FormSection>
+
+      <FormSection title="Notes">
         <div className="md:col-span-2">
           <FormField
             error={touched.notes ? errors.notes : ''}

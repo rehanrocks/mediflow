@@ -42,15 +42,16 @@ export default {
         },
       },
       fontFamily: {
+        display: ['Outfit', 'sans-serif'],
         sans: ['Outfit', 'sans-serif'],
-        mono: ['"JetBrains Mono"', 'monospace'],
+        mono: ['Outfit', 'sans-serif'],
       },
       borderRadius: {
-        card: '12px',
+        card: '8px',
         control: '8px',
       },
       boxShadow: {
-        card: '0 1px 2px rgba(20,24,31,.04), 0 8px 24px rgba(20,24,31,.04)',
+        card: '0 1px 2px rgba(20,24,31,.04), 0 10px 24px rgba(20,24,31,.05)',
       },
       backdropBlur: {
         xs: '4px',

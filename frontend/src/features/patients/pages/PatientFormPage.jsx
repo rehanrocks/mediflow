@@ -11,24 +11,26 @@ import {
   toPatientPayload,
   validateUniquePatientPhone,
 } from '../components/PatientFields'
+import DuplicatePatientModal from '../components/DuplicatePatientModal'
 import { ErrorBanner, LoadingSpinner } from '@shared/components/FormPrimitives'
 import SkeletonRow from '@shared/components/SkeletonRow'
 import { useToast } from '@shared/components/Toast'
-import { useAuth } from '@shared/context/AuthContext'
-import { canAddPatient, canEditPatient } from '@shared/lib/permissions'
+import { checkDuplicatePatient } from '@shared/lib/duplicateCheck'
 import { getBackendError, getPatientName, getRecordId } from '@shared/lib/records'
-import { createPatient, getPatient, updatePatient } from '@shared/services/api'
+import { usePermission } from '@shared/lib/usePermission'
+import { createPatient, getPatient, getPatients, updatePatient } from '@shared/services/api'
 
 export function PatientFormPage({ mode = 'add' }) {
   const isEdit = mode === 'edit'
   const { id } = useParams()
-  const { user } = useAuth()
+  const { canWrite, isAdmin } = usePermission()
   const toast = useToast()
   const navigate = useNavigate()
   const [isLoading, setIsLoading] = useState(isEdit)
   const [notFound, setNotFound] = useState(false)
   const [formError, setFormError] = useState('')
   const [patient, setPatient] = useState(null)
+  const [duplicatePatient, setDuplicatePatient] = useState(null)
   const {
     clearErrors,
     formState: { errors, isSubmitting },
@@ -89,7 +91,7 @@ export function PatientFormPage({ mode = 'add' }) {
     }
   }, [id, isEdit, reset])
 
-  const canManagePatient = isEdit ? canEditPatient(user) : canAddPatient(user)
+  const canManagePatient = isEdit ? canWrite('patients') : isAdmin
 
   if (!canManagePatient) {
     return <Navigate replace to={isEdit ? `/patients/${id}` : '/patients'} />
@@ -99,18 +101,30 @@ export function PatientFormPage({ mode = 'add' }) {
     setFormError('')
 
     try {
-      const duplicatePhoneError = await validateUniquePatientPhone(
-        values.phone,
-        isEdit ? id : null,
-      )
+      if (isEdit) {
+        const duplicatePhoneError = await validateUniquePatientPhone(
+          values.phone,
+          id,
+        )
 
-      if (duplicatePhoneError) {
-        setError('phone', {
-          type: 'manual',
-          message: duplicatePhoneError,
-        })
-        setFormError(duplicatePhoneError)
-        return
+        if (duplicatePhoneError) {
+          setError('phone', {
+            type: 'manual',
+            message: duplicatePhoneError,
+          })
+          setFormError(duplicatePhoneError)
+          return
+        }
+      } else {
+        const duplicate = await checkDuplicatePatient(
+          values.full_name,
+          values.phone,
+          getPatients,
+        )
+        if (duplicate) {
+          setDuplicatePatient(duplicate)
+          return
+        }
       }
 
       const payload = toPatientPayload(values)
@@ -129,6 +143,27 @@ export function PatientFormPage({ mode = 'add' }) {
       setFormError(message)
       toast.error(message)
     }
+  }
+
+  function handleDuplicateFound(duplicate) {
+    if (!isEdit) {
+      setDuplicatePatient(duplicate)
+    }
+  }
+
+  function handleDuplicateCancel() {
+    setDuplicatePatient(null)
+    setValue('full_name', '', {
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: true,
+    })
+    setValue('phone', '', {
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: true,
+    })
+    clearErrors(['full_name', 'phone'])
   }
 
   if (notFound) {
@@ -187,6 +222,7 @@ export function PatientFormPage({ mode = 'add' }) {
               clearErrors={clearErrors}
               currentPatientId={isEdit ? id : null}
               errors={errors}
+              onDuplicateFound={isEdit ? undefined : handleDuplicateFound}
               register={register}
               setError={setError}
               setValue={setValue}
@@ -226,6 +262,14 @@ export function PatientFormPage({ mode = 'add' }) {
           </>
         )}
       </form>
+
+      {duplicatePatient ? (
+        <DuplicatePatientModal
+          onCancel={handleDuplicateCancel}
+          onViewProfile={() => navigate(`/patients/${getRecordId(duplicatePatient)}`)}
+          patient={duplicatePatient}
+        />
+      ) : null}
     </div>
   )
 }

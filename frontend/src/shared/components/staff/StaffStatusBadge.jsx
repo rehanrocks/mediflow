@@ -26,7 +26,7 @@ export function StaffStatusBadge({ status }) {
   return (
     <span
       className={[
-        'inline-flex items-center gap-1.5 rounded-full border px-3 py-0.5 font-mono text-[11px] uppercase tracking-wide',
+        'inline-flex items-center gap-1.5 rounded-full border px-3 py-0.5 font-sans text-[11px] uppercase tracking-wide',
         config.bg,
         config.text,
         config.border,

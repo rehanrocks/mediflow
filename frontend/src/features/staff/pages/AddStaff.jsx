@@ -10,28 +10,85 @@ import {
   prepareStaffPayload,
   validateStaffForm,
 } from '@features/staff/lib/staffForm'
+import AccountCreatedModal from '@shared/components/AccountCreatedModal'
 import { ErrorBanner, LoadingSpinner } from '@shared/components/FormPrimitives'
 import { useToast } from '@shared/components/Toast'
-import { useAuth } from '@shared/context/AuthContext'
-import { canManageStaff } from '@shared/lib/permissions'
-import { getBackendError } from '@shared/lib/records'
-import { createStaff } from '@shared/services/api'
+import { getBackendError, getRecordId } from '@shared/lib/records'
+import { usePermission } from '@shared/lib/usePermission'
+import { createStaff, getRoleNames } from '@shared/services/api'
+
+function normalizeRoleOptions(response) {
+  if (Array.isArray(response?.results)) {
+    return response.results
+  }
+
+  if (Array.isArray(response)) {
+    return response
+  }
+
+  return []
+}
+
+function canonicalizeRoleName(roleName, roleOptions) {
+  const trimmedRoleName = String(roleName || '').trim()
+
+  if (!Array.isArray(roleOptions)) {
+    return trimmedRoleName
+  }
+
+  return (
+    roleOptions.find(
+      (role) =>
+        String(role.name || '').trim().toLowerCase() ===
+        trimmedRoleName.toLowerCase(),
+    )?.name || trimmedRoleName
+  )
+}
 
 export function AddStaff() {
   const navigate = useNavigate()
   const toast = useToast()
-  const { user } = useAuth()
+  const { isAdmin } = usePermission()
+  const [roleOptions, setRoleOptions] = useState(null)
+  const [roleOptionsFailed, setRoleOptionsFailed] = useState(false)
   const [data, setData] = useState(INITIAL_STAFF_FORM_DATA)
   const [errors, setErrors] = useState({})
   const [touched, setTouched] = useState({})
   const [generalError, setGeneralError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [createdAccount, setCreatedAccount] = useState(null)
 
   useEffect(() => {
-    if (!canManageStaff(user)) {
+    if (!isAdmin) {
       navigate('/not-available', { replace: true })
     }
-  }, [navigate, user])
+  }, [isAdmin, navigate])
+
+  useEffect(() => {
+    let mounted = true
+
+    async function loadRoleOptions() {
+      try {
+        const response = await getRoleNames()
+
+        if (mounted) {
+          setRoleOptions(normalizeRoleOptions(response))
+          setRoleOptionsFailed(false)
+        }
+      } catch {
+        if (mounted) {
+          setRoleOptions([])
+          setRoleOptionsFailed(true)
+        }
+      }
+    }
+
+    loadRoleOptions()
+
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   function handleChange(event) {
     const { name, value } = event.target
@@ -79,16 +136,33 @@ export function AddStaff() {
     setIsSubmitting(true)
 
     try {
-      const response = await createStaff(prepareStaffPayload(data))
-      if (response.role_created) {
-        toast.info(
-          `New role "${data.role}" saved to Access Control. ` +
-          'Go to Access Control to set permissions for this role.',
+      const payload = prepareStaffPayload({
+        ...data,
+        role: canonicalizeRoleName(data.role, roleOptions),
+      })
+      const response = await createStaff(payload)
+      const staffId = getRecordId(response)
+
+      if (response?.email_sent === false) {
+        toast.warning(
+          'Profile created but email delivery failed. Share credentials manually.',
         )
-      } else {
-        toast.success('Staff member added')
+        window.setTimeout(() => {
+          if (response?.role_created) {
+            showRoleCreatedToast(payload.role)
+          }
+          navigate(staffId ? `/staff/${staffId}` : '/staff', { replace: true })
+        }, 2000)
+        return
       }
-      navigate(`/staff/${response.id}`)
+
+      setCreatedAccount({
+        email: String(data.email || '').trim(),
+        fullName: String(data.full_name || '').trim(),
+        id: staffId,
+        role: payload.role,
+        roleCreated: response?.role_created === true,
+      })
     } catch (error) {
       const message = getBackendError(error, 'Staff member could not be created.')
       toast.error(message)
@@ -97,6 +171,28 @@ export function AddStaff() {
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  function showRoleCreatedToast(roleName) {
+    toast.custom(
+      <>
+        Staff member added. New role "{roleName}" saved to Access Control.{' '}
+        <a className="font-semibold underline" href="/access-control">
+          Go to Access Control
+        </a>{' '}
+        to set permissions for this role.
+      </>,
+    )
+  }
+
+  function handleViewProfile() {
+    if (createdAccount?.roleCreated) {
+      showRoleCreatedToast(createdAccount.role)
+    }
+
+    navigate(createdAccount?.id ? `/staff/${createdAccount.id}` : '/staff', {
+      replace: true,
+    })
   }
 
   return (
@@ -134,6 +230,8 @@ export function AddStaff() {
             errors={errors}
             onBlur={handleBlur}
             onChange={handleChange}
+            roleOptions={roleOptions}
+            roleOptionsFailed={roleOptionsFailed}
             showStatus={false}
             touched={touched}
           />
@@ -158,6 +256,15 @@ export function AddStaff() {
           </div>
         </div>
       </form>
+
+      {createdAccount ? (
+        <AccountCreatedModal
+          email={createdAccount.email}
+          entityLabel="Staff"
+          fullName={createdAccount.fullName}
+          onViewProfile={handleViewProfile}
+        />
+      ) : null}
     </div>
   )
 }

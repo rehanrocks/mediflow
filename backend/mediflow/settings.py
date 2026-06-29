@@ -33,6 +33,7 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -41,12 +42,16 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'organizations',
     'users',
     'appointments',
     'staff',
     'access_control',
+    'django_ratelimit',
+    'channels',
+    'chat',
 ]
 
 MIDDLEWARE = [
@@ -65,7 +70,7 @@ ROOT_URLCONF = 'mediflow.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -78,6 +83,16 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'mediflow.wsgi.application'
+
+ASGI_APPLICATION = 'mediflow.asgi.application'
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    },
+}
+
+REDIS_URL = config('REDIS_URL', default='redis://127.0.0.1:6379/0')
 
 
 # Database
@@ -161,3 +176,33 @@ CACHES = {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
     }
 }
+
+RATELIMIT_USE_CACHE = 'default'
+
+SILENCED_SYSTEM_CHECKS = ["django_ratelimit.E003"]
+
+PORTAL_URL = config('PORTAL_URL', default='http://localhost:5173')
+
+EMAIL_BACKEND = config(
+    'EMAIL_BACKEND',
+    default='django.core.mail.backends.console.EmailBackend',
+)
+
+EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+
+DEFAULT_FROM_EMAIL = config(
+    'DEFAULT_FROM_EMAIL',
+    default='MediFlow <noreply@mediflow.com>',
+)
+
+TEMP_PASSWORD_LENGTH = 12
+
+OPENAI_API_KEY = config('OPENAI_API_KEY', default='')
+ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
+
+CHAT_AI_RATE_LIMIT = 20
+CHAT_MAX_MESSAGE_LENGTH = 5000

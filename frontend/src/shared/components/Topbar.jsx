@@ -1,50 +1,21 @@
 /* src/shared/components/Topbar.jsx - Renders frosted page chrome with search and profile menu. */
 import { useState } from 'react'
-import { Bell, LogOut, Menu, Search, X } from 'lucide-react'
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { Bell, LogOut, Menu } from 'lucide-react'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { useAuth } from '@shared/context/AuthContext'
-import { ROLE_LABELS } from '@shared/lib/roles'
 import Avatar from './Avatar'
 
 export function Topbar({ onMenuClick, subtitle, title }) {
   const location = useLocation()
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-  const { logout, user } = useAuth()
+  const { logout, role, user } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
-  const querySearch = searchParams.get('search') || ''
   const fullName =
     [user?.first_name, user?.last_name].filter(Boolean).join(' ') ||
     'MediFlow User'
-  const roleLabel = ROLE_LABELS[user?.role] || 'User'
-
-  function getSearchTarget() {
-    if (location.pathname === '/appointments') {
-      return '/appointments'
-    }
-
-    return '/patients'
-  }
-
-  function handleSearchSubmit(event) {
-    event.preventDefault()
-    const formData = new FormData(event.currentTarget)
-    const trimmedSearch = String(formData.get('search') || '').trim()
-    const targetPath = getSearchTarget()
-
-    if (!trimmedSearch) {
-      navigate(targetPath)
-      return
-    }
-
-    navigate(`${targetPath}?search=${encodeURIComponent(trimmedSearch)}`)
-  }
-
-  function handleClearSearch() {
-    navigate(getSearchTarget())
-  }
+  const roleLabel = role?.name || 'User'
 
   function handleNotificationsToggle() {
     setMenuOpen(false)
@@ -70,7 +41,7 @@ export function Topbar({ onMenuClick, subtitle, title }) {
           <Menu aria-hidden="true" className="h-5 w-5" />
         </button>
         <div className="min-w-0">
-          <h1 className="truncate text-[22px] font-bold leading-7 text-ink">
+          <h1 className="truncate font-sans text-[24px] font-normal leading-7 text-ink">
             {title}
           </h1>
           <p className="mt-0.5 truncate text-[13px] font-medium text-slate">
@@ -80,32 +51,6 @@ export function Topbar({ onMenuClick, subtitle, title }) {
       </div>
 
       <div className="ml-4 flex shrink-0 items-center gap-3">
-        <form className="relative hidden sm:block" onSubmit={handleSearchSubmit}>
-          <span className="sr-only">Search</span>
-          <Search
-            aria-hidden="true"
-            className="pointer-events-none absolute left-3 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-slate"
-          />
-          <input
-            key={`${location.pathname}:${querySearch}`}
-            className="h-[38px] w-[220px] rounded-control border border-hairline bg-canvas pl-9 pr-9 text-[14px] font-normal text-ink outline-none transition-all duration-300 placeholder:text-slate/60 focus:w-[280px] focus:border-brand focus:ring-2 focus:ring-brand/30"
-            defaultValue={querySearch}
-            name="search"
-            placeholder="Search records"
-            type="search"
-          />
-          {querySearch ? (
-            <button
-              className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate transition hover:bg-mist hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
-              onClick={handleClearSearch}
-              type="button"
-            >
-              <span className="sr-only">Clear search</span>
-              <X aria-hidden="true" className="h-4 w-4" />
-            </button>
-          ) : null}
-        </form>
-
         <div className="relative hidden sm:block">
           <button
             aria-expanded={notificationsOpen}

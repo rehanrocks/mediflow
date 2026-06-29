@@ -3,17 +3,20 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include
 from users.views import CustomTokenObtainPairView, CustomTokenRefreshView
+from users.auth_views import ChangePasswordView
 from appointments.dashboard_views import DashboardStatsView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/change-password/', ChangePasswordView.as_view(), name='change_password'),
     path('api/', include('appointments.urls')),
     path('api/', include('users.urls')),
     path('api/', include('staff.urls')),
     path('api/access-control/', include('access_control.urls')),
     path('api/dashboard/stats/', DashboardStatsView.as_view(), name='dashboard_stats'),
+    path('api/chat/', include('chat.urls')),
 ]
 
 if settings.DEBUG:

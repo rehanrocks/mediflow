@@ -4,9 +4,9 @@ import { LogOut } from 'lucide-react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 
 import { useAuth } from '@shared/context/AuthContext'
+import { usePermission } from '@shared/lib/usePermission'
 import { stagger } from '@shared/lib/motion'
 import { getNavItems } from '@shared/lib/navItems'
-import { ROLE_LABELS } from '@shared/lib/roles'
 import Avatar from './Avatar'
 
 function LogoMark() {
@@ -33,16 +33,17 @@ function matchesItemPath(item, pathname) {
 export function Sidebar({ mobile = false, onNavigate }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const { hasFeature, logout, user } = useAuth()
+  const { logout, role, user } = useAuth()
+  const permissions = usePermission()
   const itemRefs = useRef({})
   const [activeStyle, setActiveStyle] = useState({ opacity: 0, transform: '' })
   const fullName =
     [user?.first_name, user?.last_name].filter(Boolean).join(' ') ||
     'MediFlow User'
-  const roleLabel = user ? ROLE_LABELS[user.role] || 'User' : 'User'
+  const roleLabel = role?.name || 'User'
   const visibleNavItems = useMemo(
-    () => getNavItems(user, hasFeature),
-    [user, hasFeature],
+    () => getNavItems({ ...permissions, user }),
+    [permissions, user],
   )
 
   useEffect(() => {

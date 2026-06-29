@@ -1,14 +1,20 @@
 /* src/features/doctors/components/AppointmentsTable.jsx - Doctor appointments history. */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CalendarClock } from 'lucide-react'
 
 import PaymentBadge from '@features/appointments/components/PaymentBadge'
 import StatusBadge from '@features/appointments/components/StatusBadge'
 import Avatar from '@shared/components/Avatar'
+import Pagination from '@shared/components/Pagination'
 import SkeletonRow from '@shared/components/SkeletonRow'
 import { useToast } from '@shared/components/Toast'
-import { canViewDoctorAppointments } from '@shared/lib/permissions'
+import {
+  PAGE_SIZE,
+  normalizePaginatedResponse,
+  pageParams,
+} from '@shared/lib/pagination'
 import { formatDateParts, getBackendError } from '@shared/lib/records'
+import { usePermission } from '@shared/lib/usePermission'
 import { getDoctorAppointments } from '@shared/services/api'
 
 const STATUS_FILTERS = [
@@ -18,43 +24,15 @@ const STATUS_FILTERS = [
   ['cancelled', 'Cancelled'],
 ]
 
-function getNextParams(nextUrl) {
-  if (!nextUrl) return null
-
-  try {
-    const url = new URL(nextUrl, 'http://mediflow.local')
-    return Object.fromEntries(url.searchParams.entries())
-  } catch {
-    return null
-  }
-}
-
-export function AppointmentsTable({ currentUser, doctorId }) {
+export function AppointmentsTable({ doctorId }) {
   const toast = useToast()
+  const { canViewFullDoctorProfile } = usePermission()
   const [appointments, setAppointments] = useState([])
-  const [nextPage, setNextPage] = useState(null)
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
-  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [statusFilter, setStatusFilter] = useState('all')
-  const canView = canViewDoctorAppointments(currentUser, doctorId)
-
-  const fetchAppointments = useCallback(
-    async ({ append = false, params = {} } = {}) => {
-      const response = await getDoctorAppointments(doctorId, {
-        limit: 10,
-        ordering: '-appointment_dt',
-        ...params,
-      })
-
-      setAppointments((currentAppointments) =>
-        append
-          ? [...currentAppointments, ...(response.results || [])]
-          : response.results || [],
-      )
-      setNextPage(response.next || null)
-    },
-    [doctorId],
-  )
+  const canView = canViewFullDoctorProfile(doctorId)
 
   useEffect(() => {
     let mounted = true
@@ -62,28 +40,35 @@ export function AppointmentsTable({ currentUser, doctorId }) {
     async function loadInitialAppointments() {
       if (!canView) {
         setAppointments([])
-        setNextPage(null)
+        setTotal(0)
         setIsLoading(false)
         return
       }
 
       setIsLoading(true)
+      setAppointments([])
 
       try {
+        const appointmentOrdering =
+          statusFilter === 'completed' || statusFilter === 'cancelled'
+            ? '-appointment_dt'
+            : 'appointment_dt'
         const response = await getDoctorAppointments(doctorId, {
-          limit: 10,
-          ordering: '-appointment_dt',
+          ...pageParams(page),
+          ordering: appointmentOrdering,
+          ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
         })
+        const normalized = normalizePaginatedResponse(response)
 
         if (mounted) {
-          setAppointments(response.results || [])
-          setNextPage(response.next || null)
+          setAppointments(normalized.results)
+          setTotal(normalized.count)
         }
       } catch (error) {
         if (mounted) {
           toast.error(getBackendError(error, 'Appointments could not be loaded.'))
           setAppointments([])
-          setNextPage(null)
+          setTotal(0)
         }
       } finally {
         if (mounted) {
@@ -97,28 +82,7 @@ export function AppointmentsTable({ currentUser, doctorId }) {
     return () => {
       mounted = false
     }
-  }, [canView, doctorId, toast])
-
-  const filteredAppointments = useMemo(() => {
-    if (statusFilter === 'all') return appointments
-    return appointments.filter((appointment) => appointment.status === statusFilter)
-  }, [appointments, statusFilter])
-
-  async function handleLoadMore() {
-    const params = getNextParams(nextPage)
-
-    if (!params) return
-
-    setIsLoadingMore(true)
-
-    try {
-      await fetchAppointments({ append: true, params })
-    } catch (error) {
-      toast.error(getBackendError(error, 'More appointments could not be loaded.'))
-    } finally {
-      setIsLoadingMore(false)
-    }
-  }
+  }, [canView, doctorId, page, statusFilter, toast])
 
   if (!canView) {
     return null
@@ -138,7 +102,10 @@ export function AppointmentsTable({ currentUser, doctorId }) {
                   : 'border-hairline bg-mist text-slate hover:border-brand/30 hover:text-brand',
               ].join(' ')}
               key={status}
-              onClick={() => setStatusFilter(status)}
+              onClick={() => {
+                setStatusFilter(status)
+                setPage(1)
+              }}
               type="button"
             >
               {label}
@@ -171,7 +138,7 @@ export function AppointmentsTable({ currentUser, doctorId }) {
           </thead>
           <tbody>
             {isLoading ? (
-              Array.from({ length: 5 }).map((_, index) => (
+              Array.from({ length: PAGE_SIZE }).map((_, index) => (
                 <SkeletonRow columns={6} index={index} key={index} />
               ))
             ) : appointments.length === 0 ? (
@@ -186,14 +153,8 @@ export function AppointmentsTable({ currentUser, doctorId }) {
                   </p>
                 </td>
               </tr>
-            ) : filteredAppointments.length === 0 ? (
-              <tr>
-                <td className="px-5 py-8 text-center text-[13px] text-slate" colSpan={6}>
-                  No {statusFilter} appointments
-                </td>
-              </tr>
             ) : (
-              filteredAppointments.map((appointment) => {
+              appointments.map((appointment) => {
                 const dateParts = formatDateParts(appointment.appointment_dt)
 
                 return (
@@ -214,7 +175,7 @@ export function AppointmentsTable({ currentUser, doctorId }) {
                         </div>
                       </div>
                     </td>
-                    <td className="px-5 py-4 font-mono text-[13px] text-ink">
+                    <td className="px-5 py-4 font-sans text-[13px] text-ink">
                       {dateParts.date}
                       {dateParts.time ? (
                         <>
@@ -251,18 +212,11 @@ export function AppointmentsTable({ currentUser, doctorId }) {
         </table>
       </div>
 
-      {nextPage ? (
-        <div className="border-t border-hairline py-4 text-center">
-          <button
-            className="rounded-control border border-hairline bg-canvas px-4 py-2 text-[13px] font-semibold text-slate transition hover:bg-mist hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={isLoadingMore}
-            onClick={handleLoadMore}
-            type="button"
-          >
-            {isLoadingMore ? 'Loading...' : 'Load more'}
-          </button>
-        </div>
-      ) : null}
+      <Pagination
+        currentPage={page}
+        onPageChange={setPage}
+        totalCount={total}
+      />
     </section>
   )
 }

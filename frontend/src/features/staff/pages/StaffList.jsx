@@ -17,15 +17,20 @@ import { useNavigate } from 'react-router-dom'
 
 import Avatar from '@shared/components/Avatar'
 import ConfirmationModal from '@shared/components/ConfirmationModal'
+import Pagination from '@shared/components/Pagination'
 import SkeletonRow from '@shared/components/SkeletonRow'
 import { useToast } from '@shared/components/Toast'
 import RoleBadge from '@shared/components/staff/RoleBadge'
 import StaffStatusBadge from '@shared/components/staff/StaffStatusBadge'
-import { useAuth } from '@shared/context/AuthContext'
 import useDebounce from '@shared/hooks/useDebounce'
 import { useCountUp } from '@shared/lib/countUp'
 import { stagger } from '@shared/lib/motion'
-import { canManageStaff } from '@shared/lib/permissions'
+import {
+  PAGE_SIZE,
+  normalizePaginatedResponse,
+  pageParams,
+} from '@shared/lib/pagination'
+import { usePermission } from '@shared/lib/usePermission'
 import { getBackendError } from '@shared/lib/records'
 import {
   computeTenure,
@@ -35,7 +40,8 @@ import {
   getStaffDataIssues,
   getStaffJoiningDateError,
 } from '@shared/lib/staffUtils'
-import { deleteStaff, getList, getStaff } from '@shared/services/api'
+import { formatShiftRange } from '@shared/lib/timeUtils'
+import { deleteStaff, getStaff } from '@shared/services/api'
 
 const STATUS_OPTIONS = [
   ['all', 'All'],
@@ -72,16 +78,14 @@ function StatCard({ context, icon: Icon, label, tone = 'brand', value }) {
     <section className="rounded-card border border-hairline/70 bg-canvas p-5 shadow-card transition hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(20,24,31,0.07)]">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-[11px] font-medium uppercase tracking-wide text-slate">
-            {label}
-          </p>
-          <p className="mt-2 font-mono text-[32px] font-bold text-ink">
+          <p className="text-[36px] font-bold leading-none text-ink">
             {displayValue}
           </p>
-          <p className="mt-1 text-[12px] text-slate">{context}</p>
+          <p className="mt-3 text-[13px] font-medium text-ink">{label}</p>
+          <p className="mt-1 text-[12px] font-normal text-slate">{context}</p>
         </div>
-        <div className={['rounded-lg border p-2', toneClass].join(' ')}>
-          <Icon aria-hidden="true" className="h-5 w-5" />
+        <div className={['flex h-10 w-10 items-center justify-center rounded-xl border', toneClass].join(' ')}>
+          <Icon aria-hidden="true" className="h-[18px] w-[18px]" />
         </div>
       </div>
     </section>
@@ -115,8 +119,10 @@ function IconButton({ children, label, onClick, tone = 'slate' }) {
 export function StaffList() {
   const navigate = useNavigate()
   const toast = useToast()
-  const { user } = useAuth()
+  const { canWrite, isAdmin } = usePermission()
   const [staff, setStaff] = useState([])
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
@@ -125,7 +131,7 @@ export function StaffList() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const debouncedSearch = useDebounce(searchQuery, 300)
-  const canManage = canManageStaff(user)
+  const canManage = isAdmin
   const hasActiveFilters =
     debouncedSearch.trim() || statusFilter !== 'all' || roleFilter !== 'all'
 
@@ -135,16 +141,21 @@ export function StaffList() {
     async function fetchStaff() {
       setIsLoading(true)
       setLoadError('')
+      setStaff([])
 
       try {
         const params = {
+          ...pageParams(page),
+          ordering: '-joining_date',
           ...(debouncedSearch.trim() ? { search: debouncedSearch.trim() } : {}),
           ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
         }
         const response = await getStaff(params)
+        const normalized = normalizePaginatedResponse(response)
 
         if (mounted) {
-          setStaff(getList(response))
+          setStaff(normalized.results)
+          setTotal(normalized.count)
         }
       } catch (error) {
         if (mounted) {
@@ -164,7 +175,7 @@ export function StaffList() {
     return () => {
       mounted = false
     }
-  }, [debouncedSearch, statusFilter, toast])
+  }, [debouncedSearch, page, statusFilter, toast])
 
   const uniqueRoles = useMemo(() => extractUniqueRoles(staff), [staff])
 
@@ -178,15 +189,16 @@ export function StaffList() {
     () => ({
       active: staff.filter((staffMember) => staffMember.status === 'active').length,
       roles: extractUniqueRoles(staff).length,
-      total: staff.length,
+      total,
     }),
-    [staff],
+    [staff, total],
   )
 
   function handleResetFilters() {
     setSearchQuery('')
     setStatusFilter('all')
     setRoleFilter('all')
+    setPage(1)
   }
 
   async function handleConfirmDelete() {
@@ -218,7 +230,7 @@ export function StaffList() {
             Operations
           </p>
           <p className="mt-1 text-[14px] text-slate">
-            {filteredStaff.length} visible from {staff.length} records
+            {filteredStaff.length} visible from {total} records
           </p>
         </div>
         {canManage ? (
@@ -263,7 +275,10 @@ export function StaffList() {
           <Search aria-hidden="true" className="h-4 w-4 text-slate" />
           <input
             className="min-w-0 flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-slate/50"
-            onChange={(event) => setSearchQuery(event.target.value)}
+            onChange={(event) => {
+              setSearchQuery(event.target.value)
+              setPage(1)
+            }}
             placeholder="Search by name or role..."
             type="search"
             value={searchQuery}
@@ -271,7 +286,10 @@ export function StaffList() {
           {searchQuery ? (
             <button
               className="rounded-md p-1 text-slate transition hover:bg-hairline hover:text-ink"
-              onClick={() => setSearchQuery('')}
+              onClick={() => {
+                setSearchQuery('')
+                setPage(1)
+              }}
               type="button"
             >
               <span className="sr-only">Clear staff search</span>
@@ -290,7 +308,10 @@ export function StaffList() {
                   : 'border-hairline bg-mist text-slate hover:border-slate/30 hover:text-ink',
               ].join(' ')}
               key={status}
-              onClick={() => setStatusFilter(status)}
+              onClick={() => {
+                setStatusFilter(status)
+                setPage(1)
+              }}
               type="button"
             >
               {label}
@@ -300,7 +321,10 @@ export function StaffList() {
 
         <select
           className="h-[38px] rounded-control border border-hairline bg-mist px-3 text-[13px] font-medium text-ink outline-none transition hover:border-slate/30 focus:border-brand focus:bg-canvas focus:ring-2 focus:ring-brand/15"
-          onChange={(event) => setRoleFilter(event.target.value)}
+          onChange={(event) => {
+            setRoleFilter(event.target.value)
+            setPage(1)
+          }}
           value={roleFilter}
         >
           <option value="all">All Roles</option>
@@ -325,8 +349,8 @@ export function StaffList() {
           <div className="overflow-x-auto">
             <table className="min-w-[640px] w-full">
               <tbody>
-                {Array.from({ length: 6 }).map((_, index) => (
-                  <SkeletonRow columns={6} index={index} key={index} />
+                {Array.from({ length: PAGE_SIZE }).map((_, index) => (
+                  <SkeletonRow columns={7} index={index} key={index} />
                 ))}
               </tbody>
             </table>
@@ -380,7 +404,7 @@ export function StaffList() {
                 {filteredStaff.length} records in view
               </p>
             </div>
-            <div className="font-mono text-[11px] uppercase tracking-wide text-slate">
+            <div className="font-sans text-[11px] uppercase tracking-wide text-slate">
               {statusFilter === 'all' ? 'All statuses' : statusFilter}
             </div>
           </div>
@@ -388,7 +412,7 @@ export function StaffList() {
             <table className="min-w-[640px] w-full">
               <thead className="border-b border-hairline bg-mist/90">
                 <tr>
-                  {['Name', 'Role', 'Age', 'Joined', 'Status', 'Actions'].map(
+                {['Name', 'Role', 'Age', 'Joined', 'Shift', 'Status', 'Actions'].map(
                     (heading) => (
                       <th
                         className="px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-[0.07em] text-slate"
@@ -432,8 +456,8 @@ export function StaffList() {
                             <p className="truncate text-[14px] font-semibold text-ink">
                               {staffMember.full_name}
                             </p>
-                            <p className="mt-0.5 font-mono text-[11px] text-slate">
-                              {staffMember.phone}
+                            <p className="mt-0.5 font-sans text-[11px] text-slate">
+                              {staffMember.email || staffMember.phone}
                             </p>
                           </div>
                         </div>
@@ -447,12 +471,12 @@ export function StaffList() {
                             <p className="text-[13px] font-semibold text-rose-600">
                               Needs review
                             </p>
-                            <p className="mt-1 font-mono text-[11px] text-slate">
+                            <p className="mt-1 font-sans text-[11px] text-slate">
                               Recorded: {staffMember.age}
                             </p>
                           </>
                         ) : (
-                          <p className="font-mono text-[13px] text-ink">
+                          <p className="font-sans text-[13px] text-ink">
                             {staffMember.age} yrs
                           </p>
                         )}
@@ -463,13 +487,13 @@ export function StaffList() {
                             <p className="text-[13px] font-semibold text-rose-600">
                               Check date
                             </p>
-                            <p className="mt-1 font-mono text-[11px] text-slate">
+                            <p className="mt-1 font-sans text-[11px] text-slate">
                               {formatJoinedMonth(staffMember.joining_date)}
                             </p>
                           </>
                         ) : (
                           <>
-                            <p className="font-mono text-[12px] text-ink">
+                            <p className="font-sans text-[12px] text-ink">
                               {formatJoinedMonth(staffMember.joining_date)}
                             </p>
                             <p className="mt-1 text-[11px] text-slate">
@@ -477,6 +501,9 @@ export function StaffList() {
                             </p>
                           </>
                         )}
+                      </td>
+                      <td className="px-5 py-4 font-sans text-[12px] text-slate">
+                        {formatShiftRange(staffMember.shift_start, staffMember.shift_end)}
                       </td>
                       <td className="px-5 py-4">
                         <div className="flex flex-col items-start gap-1.5">
@@ -522,6 +549,11 @@ export function StaffList() {
               </tbody>
             </table>
           </div>
+          <Pagination
+            currentPage={page}
+            onPageChange={setPage}
+            totalCount={total}
+          />
         </section>
       )}
 

@@ -33,7 +33,7 @@ export function DoctorStatusBadge({ large = false, status }) {
   return (
     <span
       className={[
-        'inline-flex items-center gap-1.5 rounded-full border font-mono uppercase tracking-wide',
+        'inline-flex items-center gap-1.5 rounded-full border font-sans font-semibold uppercase tracking-wide',
         large ? 'px-4 py-1 text-[12px]' : 'px-3 py-0.5 text-[11px]',
         config.bg,
         config.text,

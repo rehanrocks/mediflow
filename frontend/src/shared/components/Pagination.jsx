@@ -38,7 +38,7 @@ export function Pagination({
   return (
     <div className="border-t border-hairline px-5 pb-2 pt-4">
       <div className="flex flex-col gap-3 px-1 sm:flex-row sm:items-center sm:justify-between">
-        <p className="font-mono text-[12px] text-slate">
+        <p className="font-sans text-[12px] text-slate">
           Showing {start}-{end} of {totalCount} results
         </p>
 

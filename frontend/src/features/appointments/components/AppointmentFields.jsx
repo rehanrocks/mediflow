@@ -96,7 +96,7 @@ export function AppointmentFields({
           <option value="">Select doctor</option>
           {doctors.map((doctor) => (
             <option key={getRecordId(doctor)} value={getRecordId(doctor)}>
-              {getDoctorName(doctor, 'Unnamed doctor')}
+              {getDoctorName(doctor)}
             </option>
           ))}
         </select>
@@ -104,7 +104,7 @@ export function AppointmentFields({
 
       <FormField error={errors.appointment_dt?.message} label="Date & Time">
         <input
-          className={getFieldClass(errors.appointment_dt?.message, 'font-mono')}
+          className={getFieldClass(errors.appointment_dt?.message, 'font-sans')}
           type="datetime-local"
           {...register('appointment_dt', {
             validate: (value) =>
@@ -130,7 +130,7 @@ export function AppointmentFields({
 
       <FormField error={errors.temperature?.message} label="Temperature (C)" optional>
         <input
-          className={getFieldClass(errors.temperature?.message, 'font-mono')}
+          className={getFieldClass(errors.temperature?.message, 'font-sans')}
           placeholder="37.2"
           step="0.1"
           type="number"
@@ -146,7 +146,7 @@ export function AppointmentFields({
         optional
       >
         <input
-          className={getFieldClass(errors.blood_pressure?.message, 'font-mono')}
+          className={getFieldClass(errors.blood_pressure?.message, 'font-sans')}
           placeholder="120/80"
           type="text"
           {...register('blood_pressure', {

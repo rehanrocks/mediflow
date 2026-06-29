@@ -4,9 +4,9 @@ import { Navigate } from 'react-router-dom'
 import { useAuth } from '@shared/context/AuthContext'
 
 export function RootRedirect() {
-  const { homePath } = useAuth()
+  const { homePath, role } = useAuth()
 
-  return <Navigate to={homePath()} replace />
+  return <Navigate to={homePath(role)} replace />
 }
 
 export default RootRedirect

@@ -94,14 +94,6 @@ class RoleViewSet(viewsets.ModelViewSet):
                     module=item["module"],
                     defaults={"access": item["access"]},
                 )
-            mentioned_modules = {item["module"] for item in permissions_data}
-            unmentioned = [m for m in valid_modules if m not in mentioned_modules]
-            for module in unmentioned:
-                ModulePermission.objects.update_or_create(
-                    role=role,
-                    module=module,
-                    defaults={"access": "none"},
-                )
 
         return Response(RoleSerializer(role).data)
 

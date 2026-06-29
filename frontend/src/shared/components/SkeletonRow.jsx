@@ -25,6 +25,18 @@ export function SkeletonRow({ columns = 5, index = 0, variant = 'row' }) {
     )
   }
 
+  if (variant === 'chat') {
+    return (
+      <div className="flex items-center gap-3 px-3 py-2" style={style}>
+        <div className={`${BASE} h-9 w-9 shrink-0 rounded-full`} />
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className={`${BASE} h-3 w-2/3 rounded-full`} />
+          <div className={`${BASE} h-3 w-1/2 rounded-full`} />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <tr style={style}>
       {Array.from({ length: columns }).map((_, columnIndex) => (

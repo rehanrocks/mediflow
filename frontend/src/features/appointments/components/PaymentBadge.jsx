@@ -7,7 +7,7 @@ export function PaymentBadge({ large = false, status }) {
   return (
     <span
       className={[
-        'inline-flex items-center rounded-full border font-mono font-medium uppercase leading-none tracking-wide',
+        'inline-flex items-center rounded-full border font-sans font-semibold uppercase leading-none tracking-wide',
         large ? 'px-3.5 py-2 text-[12px]' : 'px-2.5 py-1 text-[11px]',
         paid
           ? 'border-green-200 bg-green-50 text-green-700'

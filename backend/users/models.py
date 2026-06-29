@@ -57,6 +57,10 @@ class User(AbstractUser):
         default=DoctorStatus.ACTIVE,
     )
 
+    force_password_change = models.BooleanField(default=False)
+    has_account = models.BooleanField(default=False)
+    last_seen = models.DateTimeField(null=True, blank=True)
+
     @property
     def role_slug(self):
         if self.role_obj_id:

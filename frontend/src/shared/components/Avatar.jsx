@@ -14,7 +14,7 @@ export function Avatar({ name = 'MediFlow User', online = false, size = 'md' }) 
     <span className="relative inline-flex shrink-0">
       <span
         className={[
-          'flex items-center justify-center rounded-full font-mono font-medium text-white ring-2 ring-white ring-offset-1 transition-transform hover:scale-105',
+          'flex items-center justify-center rounded-full font-sans font-medium text-white ring-2 ring-white ring-offset-1 transition-transform hover:scale-105',
           SIZES[size] || SIZES.md,
         ].join(' ')}
         style={{ backgroundColor: getAvatarColor(name) }}

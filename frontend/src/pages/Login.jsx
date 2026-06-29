@@ -8,7 +8,6 @@ import {
   Lock,
   User,
 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
 
 import { useAuth } from '@shared/context/AuthContext'
 
@@ -73,8 +72,7 @@ function LoginField({
 }
 
 export function Login() {
-  const navigate = useNavigate()
-  const { homePath, login } = useAuth()
+  const { login } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -88,7 +86,6 @@ export function Login() {
 
     try {
       await login(email, password)
-      navigate(homePath(), { replace: true })
     } catch (loginError) {
       setError(
         loginError?.response?.data?.detail ||
@@ -128,9 +125,9 @@ export function Login() {
 
             <div className="mt-10 space-y-3">
               {[
-                'Smart appointment scheduling',
-                'Doctor & staff management',
-                'Role-based access control',
+                'Real-time patient monitoring',
+                'AI-powered clinical alerts',
+                'HIPAA-compliant & encrypted',
               ].map((feature, index) => (
                 <div
                   className="flex animate-fade-up items-center gap-2 text-sm font-normal text-white/70"
@@ -149,12 +146,12 @@ export function Login() {
             style={{ animationDelay: '0.4s' }}
           >
             <p className="text-sm font-normal leading-6 text-white/80">
-              "Managing our clinic has never been easier. Everything in one place."
+              "MediFlow reduced our missed follow-ups by 40% in 6 weeks."
             </p>
             <div className="mt-4">
-              <p className="text-sm font-semibold text-white/80">Downtown Clinic</p>
+              <p className="text-sm font-semibold text-white/80">Dana Teller</p>
               <p className="text-xs font-medium text-white/50">
-                Trusted by healthcare teams
+                Downtown Clinic Operations
               </p>
             </div>
           </div>
@@ -174,7 +171,7 @@ export function Login() {
           onSubmit={handleSubmit}
           style={{ animationDelay: '0.1s' }}
         >
-          <h1 className="text-3xl font-bold tracking-[-0.02em] text-ink">
+          <h1 className="font-sans text-[32px] font-normal text-ink">
             Welcome back
           </h1>
           <p className="mt-1 text-sm font-medium text-slate">

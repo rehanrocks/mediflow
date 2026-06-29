@@ -13,8 +13,7 @@ import { ErrorBanner, LoadingSpinner } from '@shared/components/FormPrimitives'
 import PatientSummaryPanel from '@features/patients/components/PatientSummaryPanel'
 import SkeletonRow from '@shared/components/SkeletonRow'
 import { useToast } from '@shared/components/Toast'
-import { useAuth } from '@shared/context/AuthContext'
-import { canEditAppointment } from '@shared/lib/permissions'
+import { usePermission } from '@shared/lib/usePermission'
 import {
   getAppointmentPatientId,
   getBackendError,
@@ -35,7 +34,7 @@ function getEmbeddedAppointmentPatient(appointment) {
 
 export function AppointmentEdit() {
   const { id } = useParams()
-  const { user } = useAuth()
+  const { canWrite } = usePermission()
   const toast = useToast()
   const navigate = useNavigate()
   const [appointment, setAppointment] = useState(null)
@@ -100,7 +99,7 @@ export function AppointmentEdit() {
     })
   }, [loadAppointment])
 
-  if (!canEditAppointment(user)) {
+  if (!canWrite('appointments')) {
     return <Navigate replace to={`/appointments/${id}`} />
   }
 

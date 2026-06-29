@@ -2,10 +2,19 @@ import { computeAge } from './age'
 
 export const E164_REGEX = /^\+[1-9]\d{7,14}$/
 export const BLOOD_PRESSURE_REGEX = /^\d{1,3}\/\d{1,3}$/
+export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export function validatePhone(value) {
   if (!E164_REGEX.test(String(value || '').trim())) {
     return 'Phone must be in E.164 format - e.g. +923001234567'
+  }
+
+  return null
+}
+
+export function validateEmail(value) {
+  if (!EMAIL_REGEX.test(String(value || '').trim())) {
+    return 'Please enter a valid email address'
   }
 
   return null

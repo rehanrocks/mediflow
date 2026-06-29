@@ -15,6 +15,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import Avatar from '@shared/components/Avatar'
 import ConfirmationModal from '@shared/components/ConfirmationModal'
+import Pagination from '@shared/components/Pagination'
 import PaymentBadge, { PaymentToggle } from '../components/PaymentBadge'
 import SkeletonRow from '@shared/components/SkeletonRow'
 import StatusBadge from '../components/StatusBadge'
@@ -43,14 +44,11 @@ import {
   resolvePatient,
 } from '@shared/lib/records'
 import {
-  canBookAppointment,
-  canChangePayment,
-  canChangeStatus,
-  canDeleteAppointment,
-  canEditAppointment,
-  getUserDoctorId,
-  isDoctor,
-} from '@shared/lib/permissions'
+  PAGE_SIZE,
+  normalizePaginatedResponse,
+  pageParams,
+} from '@shared/lib/pagination'
+import { getUserDoctorId, usePermission } from '@shared/lib/usePermission'
 import {
   deleteAppointment,
   getAppointments,
@@ -170,11 +168,11 @@ function getSearchableAppointmentText(appointment, patients, doctors) {
     .concat(' ', status.replace(/_/g, ' '))
 }
 
-function canUserSeeAppointment(appointment, user) {
+function canUserSeeAppointment(appointment, user, role) {
   const currentDoctorId = getUserDoctorId(user)
 
   if (
-    isDoctor(user) &&
+    role?.slug === 'doctor' &&
     currentDoctorId &&
     String(getAppointmentDoctorId(appointment)) !== String(currentDoctorId)
   ) {
@@ -186,16 +184,19 @@ function canUserSeeAppointment(appointment, user) {
 
 export function Appointments() {
   const { user } = useAuth()
+  const { canDelete: canDeleteRecords, canWrite, role, isAdmin } = usePermission()
   const toast = useToast()
   const navigate = useNavigate()
-  const doctorUser = isDoctor(user)
-  const canBook = canBookAppointment(user)
-  const canEdit = canEditAppointment(user)
-  const canUpdateStatus = canChangeStatus(user)
-  const canUpdatePayment = canChangePayment(user)
-  const canDelete = canDeleteAppointment(user)
+  const doctorUser = role?.slug === 'doctor'
+  const canBook = isAdmin
+  const canEdit = canWrite('appointments')
+  const canUpdateStatus = canWrite('appointments')
+  const canUpdatePayment = canWrite('appointments')
+  const canDelete = canDeleteRecords()
   const [searchParams, setSearchParams] = useSearchParams()
   const [appointments, setAppointments] = useState([])
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
   const [patients, setPatients] = useState([])
   const [doctors, setDoctors] = useState([])
   const [isLoading, setIsLoading] = useState(true)
@@ -213,9 +214,26 @@ export function Appointments() {
   const loadPageData = useCallback(async (isMounted = () => true) => {
     setIsLoading(true)
     setLoadError('')
+    setAppointments([])
+
+    const appointmentOrdering =
+      statusFilter === 'completed' || statusFilter === 'cancelled'
+        ? '-appointment_dt'
+        : 'appointment_dt'
+    const appointmentParams = {
+      ...pageParams(page),
+      ordering: appointmentOrdering,
+      ...(search.trim() ? { search: search.trim() } : {}),
+      ...(statusFilter !== 'all' ? { status: statusFilter } : {}),
+      ...(periodFilter !== 'all' ? { period: periodFilter } : {}),
+    }
 
     const [appointmentsResult, patientsResult, doctorsResult] =
-      await Promise.allSettled([getAppointments(), getPatients(), getDoctors()])
+      await Promise.allSettled([
+        getAppointments(appointmentParams),
+        getPatients(),
+        getDoctors(),
+      ])
 
     if (!isMounted()) {
       return
@@ -232,7 +250,10 @@ export function Appointments() {
       return
     }
 
-    setAppointments(normalizeList(appointmentsResult.value))
+    const normalizedAppointments = normalizePaginatedResponse(appointmentsResult.value)
+
+    setAppointments(normalizedAppointments.results)
+    setTotal(normalizedAppointments.count)
     setPatients(
       patientsResult.status === 'fulfilled'
         ? normalizeList(patientsResult.value)
@@ -242,7 +263,7 @@ export function Appointments() {
       doctorsResult.status === 'fulfilled' ? normalizeList(doctorsResult.value) : [],
     )
     setIsLoading(false)
-  }, [])
+  }, [page, periodFilter, search, statusFilter])
 
   useEffect(() => {
     let mounted = true
@@ -259,9 +280,9 @@ export function Appointments() {
   const roleVisibleAppointments = useMemo(
     () =>
       appointments.filter((appointment) =>
-        canUserSeeAppointment(appointment, user),
+        canUserSeeAppointment(appointment, user, role),
       ),
-    [appointments, user],
+    [appointments, role, user],
   )
 
   const filteredAppointments = useMemo(() => {
@@ -329,6 +350,7 @@ export function Appointments() {
       nextParams.period = nextPeriod
     }
 
+    setPage(1)
     setSearchParams(nextParams, { replace: true })
   }
 
@@ -426,6 +448,7 @@ export function Appointments() {
   }
 
   function clearFilters() {
+    setPage(1)
     setSearchParams({}, { replace: true })
   }
 
@@ -496,7 +519,7 @@ export function Appointments() {
                 <span className="truncate text-[12px] font-semibold uppercase tracking-wide">
                   {label}
                 </span>
-                <span className="ml-3 rounded-full bg-canvas/80 px-2 py-0.5 font-mono text-[12px] font-semibold shadow-sm">
+                <span className="ml-3 rounded-full bg-canvas/80 px-2 py-0.5 font-sans text-[12px] font-semibold shadow-sm">
                   {count}
                 </span>
               </button>
@@ -578,7 +601,7 @@ export function Appointments() {
               </thead>
               <tbody>
                 {isLoading ? (
-                  Array.from({ length: 6 }).map((_, index) => (
+                  Array.from({ length: PAGE_SIZE }).map((_, index) => (
                     <SkeletonRow columns={tableHeaders.length} index={index} key={index} />
                   ))
                 ) : filteredAppointments.length === 0 ? (
@@ -657,7 +680,7 @@ export function Appointments() {
                             {getAppointmentDoctorName(appointment, doctors)}
                           </td>
                         ) : null}
-                        <td className="px-5 py-4 font-mono text-[13px] font-medium text-ink">
+                        <td className="px-5 py-4 font-sans text-[13px] font-medium text-ink">
                           {dateParts.date}
                           {dateParts.time ? (
                             <>
@@ -674,7 +697,7 @@ export function Appointments() {
                         </td>
                         <td className="px-5 py-4">
                           {vitalsText ? (
-                            <span className="rounded bg-mist px-2 py-0.5 font-mono text-[12px] text-ink">
+                            <span className="rounded bg-mist px-2 py-0.5 font-sans text-[12px] text-ink">
                               {vitalsText}
                             </span>
                           ) : (
@@ -773,6 +796,11 @@ export function Appointments() {
               </tbody>
             </table>
           </div>
+          <Pagination
+            currentPage={page}
+            onPageChange={setPage}
+            totalCount={total}
+          />
         </section>
       )}
 

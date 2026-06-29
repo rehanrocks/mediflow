@@ -23,7 +23,9 @@ class PatientViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == 'destroy':
             return [IsAuthenticated(), IsAdminRole(), HasFeature('patients')()]
-        if self.action in ('create', 'update', 'partial_update'):
+        if self.action == 'create':
+            return [IsAuthenticated(), IsAdminRole(), HasFeature('patients')()]
+        if self.action in ('update', 'partial_update'):
             return [IsAuthenticated(), HasModuleAccess("patients", "write"), HasFeature('patients')()]
         return [IsAuthenticated(), HasModuleAccess("patients", "read"), HasFeature('patients')()]
 
@@ -71,7 +73,9 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action == 'destroy':
             return [IsAuthenticated(), IsAdminRole(), HasFeature("appointments")()]
-        if self.action in ('create', 'update', 'partial_update', 'update_status'):
+        if self.action == 'create':
+            return [IsAuthenticated(), IsAdminRole(), HasFeature("appointments")()]
+        if self.action in ('update', 'partial_update', 'update_status'):
             return [IsAuthenticated(), HasModuleAccess("appointments", "write"), HasFeature("appointments")()]
         return [IsAuthenticated(), HasModuleAccess("appointments", "read"), HasFeature("appointments")()]
 
